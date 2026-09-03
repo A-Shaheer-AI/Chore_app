@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { addDays, isWithinInterval, nextDay, setHours, setMinutes } from 'date-fns';
 import type { Day } from 'date-fns';
+import { supabase } from './supabase';
 
 export type User = {
   id: string;
@@ -18,11 +18,10 @@ export type Chore = {
   name: string;
   schedule_type: ScheduleType;
   
-  // Schedule payload
   time_of_day: string; // "HH:mm"
-  frequency_days?: number; // for custom_interval
-  day_of_week?: number; // for weekly (0-6)
-  target_date?: number; // for specific_date
+  frequency_days?: number;
+  day_of_week?: number;
+  target_date?: number;
 
   current_user_id: string;
   due_date: number;
@@ -41,13 +40,16 @@ interface AppState {
   chores: Chore[];
   history: ChoreHistory[];
   activeChoreId: string | null;
+  isLoaded: boolean;
+  
+  init: () => Promise<void>;
   setActiveChore: (id: string) => void;
-  markChoreDone: (choreId: string) => void;
-  addUser: (name: string) => void;
-  removeUser: (id: string) => void;
-  updateUserAway: (id: string, start: number | null, end: number | null) => void;
-  addChore: (payload: Omit<Chore, 'id' | 'current_user_id' | 'due_date'>) => void;
-  removeChore: (id: string) => void;
+  markChoreDone: (choreId: string) => Promise<void>;
+  addUser: (name: string) => Promise<void>;
+  removeUser: (id: string) => Promise<void>;
+  updateUserAway: (id: string, start: number | null, end: number | null) => Promise<void>;
+  addChore: (payload: Omit<Chore, 'id' | 'current_user_id' | 'due_date'>) => Promise<void>;
+  removeChore: (id: string) => Promise<void>;
 }
 
 const applyTime = (date: Date, timeString: string): Date => {
@@ -63,7 +65,6 @@ export const calculateNextDueDate = (chore: Partial<Chore>, fromDate: Date = new
       nextDate = addDays(fromDate, 1);
       break;
     case 'weekly':
-      // 0 = Sunday, 1 = Monday, etc.
       nextDate = nextDay(fromDate, (chore.day_of_week || 0) as Day);
       break;
     case 'custom_interval':
@@ -83,177 +84,181 @@ export const calculateNextDueDate = (chore: Partial<Chore>, fromDate: Date = new
   return nextDate.getTime();
 };
 
-export const useStore = create<AppState>()(
-  persist(
-    (set) => ({
-      users: [
-        { id: '1', name: 'Alice', away_start: null, away_end: null, points: 0 },
-        { id: '2', name: 'Bob', away_start: null, away_end: null, points: 0 },
-        { id: '3', name: 'Charlie', away_start: null, away_end: null, points: 0 },
-        { id: '4', name: 'Diana', away_start: null, away_end: null, points: 0 },
-        { id: '5', name: 'Eve', away_start: null, away_end: null, points: 0 },
-      ],
-      chores: [
-        { 
-          id: 'c1', name: 'Dishes', schedule_type: 'daily', time_of_day: '20:00', 
-          current_user_id: '1', due_date: applyTime(addDays(new Date(), 1), '20:00').getTime() 
-        },
-        { 
-          id: 'c2', name: 'Vacuuming', schedule_type: 'custom_interval', frequency_days: 3, time_of_day: '10:00', 
-          current_user_id: '3', due_date: applyTime(addDays(new Date(), 2), '10:00').getTime() 
-        },
-        { 
-          id: 'c3', name: 'Trash', schedule_type: 'weekly', day_of_week: 1, time_of_day: '08:00', 
-          current_user_id: '4', due_date: applyTime(nextDay(new Date(), 1), '08:00').getTime() 
-        },
-      ],
-      history: [],
-      activeChoreId: 'c1',
+export const useStore = create<AppState>((set, get) => ({
+  users: [],
+  chores: [],
+  history: [],
+  activeChoreId: null,
+  isLoaded: false,
 
-      setActiveChore: (id) => set({ activeChoreId: id }),
+  init: async () => {
+    // Initial fetch
+    const [ { data: users }, { data: chores }, { data: history } ] = await Promise.all([
+      supabase.from('users').select('*'),
+      supabase.from('chores').select('*'),
+      supabase.from('history').select('*').order('completed_at', { ascending: false }).limit(50)
+    ]);
 
-      markChoreDone: (choreId) => set((state) => {
-        const now = Date.now();
-        
-        const activeUsers = state.users.filter(u => {
-          if (!u.away_start || !u.away_end) return true;
-          return !isWithinInterval(now, { start: u.away_start, end: u.away_end });
-        });
+    set({ 
+      users: users || [], 
+      chores: chores || [], 
+      history: history || [],
+      activeChoreId: chores && chores.length > 0 ? chores[0].id : null,
+      isLoaded: true
+    });
 
-        if (activeUsers.length === 0) return state;
+    // Realtime subscriptions
+    supabase.channel('public:users')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, async () => {
+        const { data } = await supabase.from('users').select('*');
+        if (data) set({ users: data });
+      }).subscribe();
 
-        const targetChore = state.chores.find(c => c.id === choreId);
-        if (!targetChore) return state;
+    supabase.channel('public:chores')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chores' }, async () => {
+        const { data } = await supabase.from('chores').select('*');
+        if (data) set({ chores: data });
+      }).subscribe();
 
-        const userForHistory = state.users.find(u => u.id === targetChore.current_user_id);
+    supabase.channel('public:history')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'history' }, async () => {
+        const { data } = await supabase.from('history').select('*').order('completed_at', { ascending: false }).limit(50);
+        if (data) set({ history: data });
+      }).subscribe();
+  },
 
-        // Point calculation
-        const hoursOverdue = (now - targetChore.due_date) / (1000 * 60 * 60);
-        let pointsEarned = 0;
-        
-        if (hoursOverdue < 24) {
-          pointsEarned = 10; // Within 24 hours of due date
-        } else if (hoursOverdue < 48) {
-          pointsEarned = 5; // Within 48 hours of due date
-        } else {
-          pointsEarned = -2; // Beyond 48 hours
-        }
+  setActiveChore: (id) => set({ activeChoreId: id }),
 
-        const newHistoryEntry = userForHistory ? {
-          id: Math.random().toString(),
-          chore_name: targetChore.name,
-          user_name: userForHistory.name,
-          completed_at: now,
-          points_awarded: pointsEarned
-        } : null;
+  markChoreDone: async (choreId) => {
+    const state = get();
+    const now = Date.now();
+    
+    const activeUsers = state.users.filter(u => {
+      if (!u.away_start || !u.away_end) return true;
+      return !isWithinInterval(now, { start: u.away_start, end: u.away_end });
+    });
 
-        return {
-          history: newHistoryEntry ? [newHistoryEntry, ...state.history].slice(0, 50) : state.history,
-          users: state.users.map(u => {
-            if (u.id === targetChore.current_user_id) {
-              return { ...u, points: (u.points || 0) + pointsEarned };
-            }
-            return u;
-          }),
-          chores: state.chores.map(chore => {
-            if (chore.id !== choreId) return chore;
+    if (activeUsers.length === 0) return;
 
-            // Find next user
-            let nextUserIndex = 0;
-            const currentUserActiveIndex = activeUsers.findIndex(u => u.id === chore.current_user_id);
-            
-            if (currentUserActiveIndex !== -1) {
-              nextUserIndex = (currentUserActiveIndex + 1) % activeUsers.length;
-            }
-            const nextUser = activeUsers[nextUserIndex];
+    const targetChore = state.chores.find(c => c.id === choreId);
+    if (!targetChore) return;
 
-            // Re-assign or leave assigned if one-time
-            if (chore.schedule_type === 'specific_date') {
-              // specific_date chores don't repeat, but for roulette they might just pass to next person and wait?
-              // Let's just update the user, maybe the user wants it to just pass on.
-              // Actually, if it's one time, we should probably delete it or mark it completed. 
-              // For simplicity, we just push it 1 year in future or something?
-              // Let's push it 1 year if it's one-time, just to get it out of the way.
-            }
+    const userForHistory = state.users.find(u => u.id === targetChore.current_user_id);
 
-            return {
-              ...chore,
-              current_user_id: nextUser.id,
-              due_date: calculateNextDueDate(chore, new Date())
-            };
-          })
-        };
-      }),
-
-      addUser: (name) => set((state) => ({
-        users: [...state.users, { id: Math.random().toString(), name, away_start: null, away_end: null, points: 0 }]
-      })),
-
-      removeUser: (id) => set((state) => ({
-        users: state.users.filter(u => u.id !== id)
-      })),
-
-      updateUserAway: (id, start, end) => set((state) => {
-        const now = Date.now();
-        const updatedUsers = state.users.map(u => u.id === id ? { ...u, away_start: start, away_end: end } : u);
-        
-        const activeUsers = updatedUsers.filter(u => {
-          if (!u.away_start || !u.away_end) return true;
-          return !isWithinInterval(now, { start: u.away_start, end: u.away_end });
-        });
-
-        if (activeUsers.length === 0) return { users: updatedUsers };
-
-        const updatedChores = state.chores.map(chore => {
-          const isCurrentUserActive = activeUsers.some(u => u.id === chore.current_user_id);
-          
-          if (!isCurrentUserActive) {
-            const oldUserIndex = state.users.findIndex(u => u.id === chore.current_user_id);
-            let nextUser = activeUsers[0];
-            
-            for (let i = 1; i < state.users.length; i++) {
-              const candidateIndex = (oldUserIndex + i) % state.users.length;
-              const candidateUser = state.users[candidateIndex];
-              if (activeUsers.some(u => u.id === candidateUser.id)) {
-                nextUser = candidateUser;
-                break;
-              }
-            }
-            return { ...chore, current_user_id: nextUser.id };
-          }
-          return chore;
-        });
-
-        return { users: updatedUsers, chores: updatedChores };
-      }),
-
-      addChore: (payload) => set((state) => {
-        const now = Date.now();
-        const activeUsers = state.users.filter(u => {
-          if (!u.away_start || !u.away_end) return true;
-          return !isWithinInterval(now, { start: u.away_start, end: u.away_end });
-        });
-        const assignedUser = activeUsers.length > 0 ? activeUsers[0].id : state.users[0]?.id;
-        
-        const initialDueDate = calculateNextDueDate(payload, new Date());
-
-        return {
-          chores: [...state.chores, {
-            id: Math.random().toString(),
-            ...payload,
-            current_user_id: assignedUser,
-            due_date: initialDueDate
-          }]
-        };
-      }),
-
-      removeChore: (id) => set((state) => ({
-        chores: state.chores.filter(c => c.id !== id),
-        activeChoreId: state.activeChoreId === id ? null : state.activeChoreId
-      }))
-    }),
-    {
-      name: 'chore-roulette-v2', // bump version to reset state
+    // Point calculation
+    const hoursOverdue = (now - targetChore.due_date) / (1000 * 60 * 60);
+    let pointsEarned = 0;
+    
+    if (hoursOverdue < 24) {
+      pointsEarned = 10;
+    } else if (hoursOverdue < 48) {
+      pointsEarned = 5;
+    } else {
+      pointsEarned = -2;
     }
-  )
-);
+
+    if (userForHistory) {
+      // 1. Insert history
+      await supabase.from('history').insert({
+        chore_name: targetChore.name,
+        user_name: userForHistory.name,
+        completed_at: now,
+        points_awarded: pointsEarned
+      });
+
+      // 2. Update user points
+      await supabase.from('users').update({ 
+        points: (userForHistory.points || 0) + pointsEarned 
+      }).eq('id', userForHistory.id);
+    }
+
+    // 3. Find next user for chore
+    let nextUserIndex = 0;
+    const currentUserActiveIndex = activeUsers.findIndex(u => u.id === targetChore.current_user_id);
+    if (currentUserActiveIndex !== -1) {
+      nextUserIndex = (currentUserActiveIndex + 1) % activeUsers.length;
+    }
+    const nextUser = activeUsers[nextUserIndex];
+
+    // 4. Update chore
+    await supabase.from('chores').update({
+      current_user_id: nextUser.id,
+      due_date: calculateNextDueDate(targetChore, new Date())
+    }).eq('id', targetChore.id);
+  },
+
+  addUser: async (name) => {
+    await supabase.from('users').insert({
+      name,
+      away_start: null,
+      away_end: null,
+      points: 0
+    });
+  },
+
+  removeUser: async (id) => {
+    await supabase.from('users').delete().eq('id', id);
+  },
+
+  updateUserAway: async (id, start, end) => {
+    const state = get();
+    const now = Date.now();
+    
+    // Optimistic update to check chores re-assignment
+    const updatedUsers = state.users.map(u => u.id === id ? { ...u, away_start: start, away_end: end } : u);
+    
+    const activeUsers = updatedUsers.filter(u => {
+      if (!u.away_start || !u.away_end) return true;
+      return !isWithinInterval(now, { start: u.away_start, end: u.away_end });
+    });
+
+    await supabase.from('users').update({ away_start: start, away_end: end }).eq('id', id);
+
+    if (activeUsers.length === 0) return;
+
+    // Reassign chores if necessary
+    for (const chore of state.chores) {
+      const isCurrentUserActive = activeUsers.some(u => u.id === chore.current_user_id);
+      
+      if (!isCurrentUserActive) {
+        const oldUserIndex = state.users.findIndex(u => u.id === chore.current_user_id);
+        let nextUser = activeUsers[0];
+        
+        for (let i = 1; i < state.users.length; i++) {
+          const candidateIndex = (oldUserIndex + i) % state.users.length;
+          const candidateUser = state.users[candidateIndex];
+          if (activeUsers.some(u => u.id === candidateUser.id)) {
+            nextUser = candidateUser;
+            break;
+          }
+        }
+        
+        await supabase.from('chores').update({ current_user_id: nextUser.id }).eq('id', chore.id);
+      }
+    }
+  },
+
+  addChore: async (payload) => {
+    const state = get();
+    const now = Date.now();
+    const activeUsers = state.users.filter(u => {
+      if (!u.away_start || !u.away_end) return true;
+      return !isWithinInterval(now, { start: u.away_start, end: u.away_end });
+    });
+    const assignedUser = activeUsers.length > 0 ? activeUsers[0].id : state.users[0]?.id;
+    
+    if (!assignedUser) return; // No users to assign to
+
+    const initialDueDate = calculateNextDueDate(payload, new Date());
+
+    await supabase.from('chores').insert({
+      ...payload,
+      current_user_id: assignedUser,
+      due_date: initialDueDate
+    });
+  },
+
+  removeChore: async (id) => {
+    await supabase.from('chores').delete().eq('id', id);
+  }
+}));

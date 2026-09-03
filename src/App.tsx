@@ -1,10 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { Management } from './components/Management';
-
+import { useStore } from './store';
 
 function App() {
   const [currentTab, setCurrentTab] = useState<'dashboard' | 'management'>('dashboard');
+  const { init, isLoaded } = useStore();
+
+  useEffect(() => {
+    init();
+  }, [init]);
+
+  if (!isLoaded) {
+    return <div className="min-h-screen flex items-center justify-center font-bold text-gray-500">Loading live data...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
