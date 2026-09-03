@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { Management } from './components/Management';
+import { Rules } from './components/Rules';
 import { useStore } from './store';
 
 function App() {
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'management'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'management' | 'rules'>('dashboard');
   const { init, isLoaded } = useStore();
 
   useEffect(() => {
@@ -32,11 +33,19 @@ function App() {
           >
             Management
           </button>
+          <button 
+            className={`flex-1 py-4 font-bold text-center border-b-4 transition-colors ${currentTab === 'rules' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            onClick={() => setCurrentTab('rules')}
+          >
+            Rules
+          </button>
         </div>
       </nav>
 
       <main className="flex-1 overflow-y-auto pb-12">
-        {currentTab === 'dashboard' ? <Dashboard /> : <Management />}
+        {currentTab === 'dashboard' && <Dashboard />}
+        {currentTab === 'management' && <Management />}
+        {currentTab === 'rules' && <Rules />}
       </main>
     </div>
   );
