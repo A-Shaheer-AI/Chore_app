@@ -1,175 +1,178 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { isWithinInterval, formatDistanceToNow, isPast, format } from 'date-fns';
-import { useStore } from '../store';
-import { Wheel } from './Wheel';
-import { CheckCircle, Clock, Calendar, Camera } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { formatDistanceToNow, isPast, format } from 'date-fns';
+import { useStore, computeRotation, getNextUser } from '../store';
+import { CheckCircle, Clock, Camera, Users, ChevronRight, X } from 'lucide-react';
 
 export const Dashboard = () => {
-  const { users, chores, history, activeChoreId, setActiveChore, markChoreDone } = useStore();
-
+  const { users, chores, markChoreDone } = useStore();
   const [currentTime, setCurrentTime] = useState(Date.now());
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Per-chore photo uploads
+  const [photoFiles, setPhotoFiles] = useState<Record<string, File | null>>({});
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const [viewRotationChore, setViewRotationChore] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const activeChore = chores.find(c => c.id === activeChoreId) || chores[0];
-  
-  const activeUsers = useMemo(() => {
-    return users.filter(u => {
-      if (!u.away_start || !u.away_end) return true;
-      return !isWithinInterval(currentTime, { start: u.away_start, end: u.away_end });
-    });
-  }, [users, currentTime]);
+  const handleFileChange = (choreId: string, file: File | null) => {
+    setPhotoFiles(prev => ({ ...prev, [choreId]: file }));
+  };
 
-  if (!activeChore) {
-    return <div className="p-8 text-center text-gray-500">No chores set up yet.</div>;
-  }
+  const handleDone = async (choreId: string) => {
+    const file = photoFiles[choreId];
+    await markChoreDone(choreId, file ?? undefined);
+    setPhotoFiles(prev => ({ ...prev, [choreId]: null }));
+    if (fileInputRefs.current[choreId]) {
+      fileInputRefs.current[choreId]!.value = '';
+    }
+  };
 
-  const currentUser = users.find(u => u.id === activeChore.current_user_id);
-  const isOverdue = isPast(activeChore.due_date);
-  
-  const hoursOverdue = isOverdue ? (currentTime - activeChore.due_date) / (1000 * 60 * 60) : 0;
-  const isDelayed = hoursOverdue > 0;
-  const isWarning = hoursOverdue >= 24 && hoursOverdue < 48;
-  const isPenalty = hoursOverdue >= 48;
-
-  // Next task overall (not just active)
-  const upcomingChores = [...chores].sort((a, b) => a.due_date - b.due_date).filter(c => !isPast(c.due_date));
-  const nextChoreOverall = upcomingChores.length > 0 ? upcomingChores[0] : null;
+  const sortedChores = [...chores].sort((a, b) => a.due_date - b.due_date);
 
   return (
-    <div className="flex flex-col items-center p-4 max-w-lg mx-auto w-full">
-      {/* Current Time Display */}
-      <div className="bg-white/50 px-4 py-2 rounded-full mb-6 text-sm font-semibold text-gray-600 shadow-sm flex items-center gap-2 border border-gray-200">
-        <Clock size={16} className="text-primary" />
-        {format(currentTime, 'EEEE, MMM do - h:mm:ss a')}
-      </div>
+    <div className="max-w-2xl mx-auto w-full p-4 flex flex-col gap-6 pb-20">
+      <h1 className="text-3xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+        🏠 House Chores
+      </h1>
       
-      {/* Chore Selector */}
-      <div className="flex gap-2 overflow-x-auto w-full mb-6 pb-2 scrollbar-hide justify-center">
-        {chores.map(chore => (
-          <button
-            key={chore.id}
-            onClick={() => setActiveChore(chore.id)}
-            className={`px-4 py-2 rounded-full whitespace-nowrap transition-colors ${
-              activeChoreId === chore.id 
-                ? 'bg-primary text-white shadow-md' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            {chore.name}
-          </button>
-        ))}
-      </div>
-
-      <div className="bg-white p-6 rounded-2xl shadow-xl w-full flex flex-col items-center">
-        <h2 className="text-2xl font-bold text-gray-700 mb-2">{activeChore.name}</h2>
-        <div className="mb-8 text-center">
-          <p className="text-gray-500 mb-1">Up next:</p>
-          <p className={`text-xl font-bold ${isPenalty || isWarning ? 'text-red-500' : 'text-primary'}`}>
-            {currentUser?.name || 'Unknown'}
-          </p>
-          
-          <div className="mt-3 text-sm flex flex-col items-center gap-1">
-            {isPenalty && (
-              <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full font-semibold inline-block mb-1 animate-pulse border border-red-300 shadow-sm">
-                🚨 PENALTY MODE: Owes food!
-              </span>
-            )}
-            {isWarning && (
-              <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full font-semibold inline-block mb-1 animate-pulse border border-orange-300 shadow-sm">
-                ⚠️ WARNING: Task is heavily delayed!
-              </span>
-            )}
-            
-            <p className={`${isDelayed ? (isWarning || isPenalty ? 'text-red-600' : 'text-orange-500') : 'text-gray-700'} font-medium flex items-center gap-1`}>
-              <Calendar size={14} /> 
-              {isDelayed ? 'OVERDUE' : 'DUE:'} {format(activeChore.due_date, 'MMM do, h:mm a')}
-            </p>
-            <p className={`${isDelayed ? (isWarning || isPenalty ? 'text-red-500' : 'text-orange-400') : 'text-gray-500'} text-xs font-semibold`}>
-              ({formatDistanceToNow(activeChore.due_date, { addSuffix: true })})
-            </p>
-          </div>
-        </div>
-
-        <Wheel activeUsers={activeUsers} currentUserId={activeChore.current_user_id} />
-        
-        {/* Photo upload + done */}
-        <div className="mt-10 flex flex-col items-center gap-3 w-full">
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={e => setPhotoFile(e.target.files?.[0] ?? null)}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-semibold border transition-colors ${
-              photoFile
-                ? 'bg-purple-100 text-purple-700 border-purple-300'
-                : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
-            }`}
-          >
-            <Camera size={16} />
-            {photoFile ? `📷 ${photoFile.name}` : 'Add photo (+1 pt)'}
-          </button>
-          <button
-            onClick={async () => {
-              await markChoreDone(activeChore.id, photoFile ?? undefined);
-              setPhotoFile(null);
-              if (fileInputRef.current) fileInputRef.current.value = '';
-            }}
-            className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
-          >
-            <CheckCircle size={24} />
-            I have done it!
-          </button>
-        </div>
-      </div>
-
-      {/* Next Upcoming Overall */}
-      {nextChoreOverall && (
-        <div className="mt-6 w-full text-center text-sm text-gray-500">
-          Next upcoming task: <span className="font-bold text-gray-700">{nextChoreOverall.name}</span> on {format(nextChoreOverall.due_date, 'MMM do')}
-        </div>
-      )}
-      
-      {/* Solo Caretaker Reward Banner */}
-      {activeUsers.length === 1 && users.length > 1 && (
-        <div className="mt-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-r shadow-md w-full">
-          <p className="font-bold">👑 Solo Caretaker Reward Active!</p>
-          <p className="text-sm">Everyone else is away. The house owes {activeUsers[0].name} a food treat!</p>
+      {sortedChores.length === 0 && (
+        <div className="bg-white p-8 rounded-2xl shadow-md text-center">
+          <p className="text-gray-500">No chores set up yet. Go to Manage to add some!</p>
         </div>
       )}
 
-      {/* History Section */}
-      {history && history.length > 0 && (
-        <div className="mt-10 w-full">
-          <h3 className="text-lg font-bold text-gray-700 mb-4 border-b pb-2">Recent Activity</h3>
-          <div className="bg-white rounded-xl shadow-md overflow-hidden">
-            <ul className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
-              {history.map(item => (
-                <li key={item.id} className="p-4 hover:bg-gray-50">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-semibold text-gray-800">{item.user_name} <span className="font-normal text-gray-500">completed</span> {item.chore_name}</p>
-                      <p className="text-xs text-gray-400 mt-1">{format(item.completed_at, 'MMM do, h:mm a')}</p>
-                    </div>
-                    <CheckCircle size={20} className="text-green-500" />
+      {sortedChores.map(chore => {
+        const isOverdue = isPast(chore.due_date);
+        const hoursOverdue = (currentTime - chore.due_date) / (1000 * 60 * 60);
+        const currentUser = users.find(u => u.id === chore.current_user_id);
+        const nextUser = getNextUser(chore, users);
+        const isPenalty = hoursOverdue >= 48;
+        const isWarning = hoursOverdue >= 24 && hoursOverdue < 48;
+
+        const photoFile = photoFiles[chore.id];
+
+        let statusColor = "bg-green-100 text-green-700";
+        if (isPenalty) statusColor = "bg-red-100 text-red-700 animate-pulse border border-red-500";
+        else if (isWarning) statusColor = "bg-orange-100 text-orange-700 border border-orange-400 animate-pulse";
+        else if (isOverdue) statusColor = "bg-yellow-100 text-yellow-700";
+
+        return (
+          <div key={chore.id} className="bg-white rounded-2xl shadow-xl overflow-hidden border-t-4 border-indigo-500">
+            <div className="p-5">
+              <div className="flex flex-col gap-2">
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-800 break-words whitespace-pre-wrap leading-tight">
+                  {chore.name}
+                </h2>
+                <div className="mt-1 flex flex-wrap gap-2 text-sm">
+                  <span className={`px-3 py-1 rounded-full font-bold flex items-center gap-1 ${statusColor}`}>
+                    <Clock size={14} />
+                    {isOverdue ? `Overdue by ${formatDistanceToNow(chore.due_date)}` : `Due in ${formatDistanceToNow(chore.due_date)}`}
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 font-medium">
+                    {format(chore.due_date, "EEEE, h:mm a")}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-6 bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Current Turn</p>
+                    <p className="text-xl font-bold text-indigo-700 flex items-center gap-2">
+                      👤 {currentUser?.name ?? 'Unknown'}
+                    </p>
                   </div>
-                </li>
-              ))}
-            </ul>
+                  
+                  {nextUser && (
+                    <div 
+                      className="cursor-pointer hover:bg-gray-200 p-2 rounded-lg transition-colors border border-transparent hover:border-gray-300"
+                      onClick={() => setViewRotationChore(chore.id)}
+                    >
+                      <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 flex items-center gap-1">
+                        Next Up <ChevronRight size={14}/>
+                      </p>
+                      <p className="text-lg font-medium text-gray-600">
+                        {nextUser.name}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="mt-6 flex flex-col sm:flex-row items-center gap-3 w-full">
+                <input
+                  ref={el => { fileInputRefs.current[chore.id] = el; }}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => handleFileChange(chore.id, e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRefs.current[chore.id]?.click()}
+                  className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold border transition-colors w-full sm:w-auto ${
+                    photoFile
+                      ? 'bg-purple-100 text-purple-700 border-purple-300'
+                      : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+                  }`}
+                >
+                  <Camera size={18} />
+                  {photoFile ? `📷 ${photoFile.name}` : 'Add photo (+1 pt)'}
+                </button>
+                <button
+                  onClick={() => handleDone(chore.id)}
+                  className="flex-1 w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all"
+                >
+                  <CheckCircle size={24} />
+                  Mark as Done
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Rotation Modal */}
+      {viewRotationChore && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
+            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                <Users size={18}/> Rotation Order
+              </h3>
+              <button onClick={() => setViewRotationChore(null)} className="text-gray-500 hover:text-gray-800 bg-gray-200 p-1 rounded-full">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 max-h-[60vh] overflow-y-auto">
+              <ul className="space-y-2">
+                {(() => {
+                  const chore = chores.find(c => c.id === viewRotationChore);
+                  if (!chore) return null;
+                  const rotation = computeRotation(chore, users);
+                  const currentIdx = rotation.findIndex(u => u.id === chore.current_user_id);
+                  return rotation.map((u, i) => (
+                    <li key={u.id} className={`p-3 rounded-lg flex items-center gap-3 ${i === currentIdx ? 'bg-indigo-100 border border-indigo-300' : 'bg-gray-50 border border-gray-100'}`}>
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === currentIdx ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                        {i + 1}
+                      </span>
+                      <span className={`font-medium ${i === currentIdx ? 'text-indigo-800' : 'text-gray-700'}`}>
+                        {u.name} {i === currentIdx && '(Current)'}
+                      </span>
+                    </li>
+                  ));
+                })()}
+              </ul>
+            </div>
           </div>
         </div>
       )}
+
     </div>
   );
 };
