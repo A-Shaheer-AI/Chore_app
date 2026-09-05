@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useStore } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
-import { Trash2, UserPlus, Plus } from 'lucide-react';
+import { Trash2, UserPlus, Plus, SkipForward, Calendar } from 'lucide-react';
 
 export const Management = () => {
-  const { users, chores, addUser, removeUser, updateUserAway, addChore, removeChore } = useStore();
+  const { users, chores, addUser, removeUser, updateUserAway, updateUserRentDueDate, redeemSkipTurn, addChore, removeChore, currentUserId } = useStore();
   
   const [newUserName, setNewUserName] = useState('');
   
@@ -85,37 +85,69 @@ export const Management = () => {
 
         <ul className="divide-y">
           {users.map(user => (
-            <li key={user.id} className="py-3 flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-gray-800">{user.name}</p>
-                <div className="flex items-center gap-2 mt-1 text-sm">
-                  <span className="text-gray-500">Away Status:</span>
-                  {user.away_start && user.away_end ? (
-                    <span className="text-orange-600 bg-orange-100 px-2 py-0.5 rounded text-xs">
-                      {format(user.away_start, 'MMM d')} - {format(user.away_end, 'MMM d')}
-                    </span>
-                  ) : (
-                    <span className="text-green-600 bg-green-100 px-2 py-0.5 rounded text-xs">Active</span>
-                  )}
+            <li key={user.id} className="py-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-gray-800">{user.name}</p>
+                  <p className="text-xs text-gray-400">{user.points} pts</p>
+                  <div className="flex items-center gap-2 mt-1 text-sm">
+                    <span className="text-gray-500">Away:</span>
+                    {user.away_start && user.away_end ? (
+                      <span className="text-orange-600 bg-orange-100 px-2 py-0.5 rounded text-xs">
+                        {format(user.away_start, 'MMM d')} - {format(user.away_end, 'MMM d')}
+                      </span>
+                    ) : (
+                      <span className="text-green-600 bg-green-100 px-2 py-0.5 rounded text-xs">Active</span>
+                    )}
+                    {user.skip_next_chore && (
+                      <span className="text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded text-xs font-bold">⏭ Skip queued</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <button
+                    onClick={() => {
+                      if (user.away_start) {
+                        updateUserAway(user.id, null, null);
+                      } else {
+                        updateUserAway(user.id, Date.now(), addDays(new Date(), 3).getTime());
+                      }
+                    }}
+                    className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-700"
+                  >
+                    Toggle Away
+                  </button>
+                  <button onClick={() => removeUser(user.id)} className="text-red-500 hover:text-red-700 p-1">
+                    <Trash2 size={18} />
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2 items-center">
-                <button 
-                  onClick={() => {
-                    if (user.away_start) {
-                      updateUserAway(user.id, null, null);
-                    } else {
-                      updateUserAway(user.id, Date.now(), addDays(new Date(), 3).getTime());
-                    }
-                  }}
-                  className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-700"
-                >
-                  Toggle Away
-                </button>
-                <button onClick={() => removeUser(user.id)} className="text-red-500 hover:text-red-700 p-1">
-                  <Trash2 size={18} />
-                </button>
+
+              {/* Rent due date */}
+              <div className="mt-2 flex items-center gap-2">
+                <Calendar size={14} className="text-gray-400" />
+                <label className="text-xs text-gray-500">Rent due date:</label>
+                <input
+                  type="date"
+                  value={user.rent_due_date ?? ''}
+                  onChange={e => updateUserRentDueDate(user.id, e.target.value || null)}
+                  className="text-xs border border-gray-300 rounded px-2 py-1"
+                />
               </div>
+
+              {/* Skip-turn redemption */}
+              {currentUserId === user.id && (
+                <div className="mt-2">
+                  <button
+                    onClick={() => redeemSkipTurn(user.id)}
+                    disabled={user.points < 100 || user.skip_next_chore}
+                    className="flex items-center gap-1 text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-1 rounded-full font-bold hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <SkipForward size={13} />
+                    {user.skip_next_chore ? 'Skip already queued' : `Redeem Skip-Turn (100 pts) — you have ${user.points}`}
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>

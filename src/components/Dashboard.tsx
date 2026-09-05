@@ -1,13 +1,15 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { isWithinInterval, formatDistanceToNow, isPast, format } from 'date-fns';
 import { useStore } from '../store';
 import { Wheel } from './Wheel';
-import { CheckCircle, Clock, Calendar } from 'lucide-react';
+import { CheckCircle, Clock, Calendar, Camera } from 'lucide-react';
 
 export const Dashboard = () => {
   const { users, chores, history, activeChoreId, setActiveChore, markChoreDone } = useStore();
 
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -96,13 +98,40 @@ export const Dashboard = () => {
 
         <Wheel activeUsers={activeUsers} currentUserId={activeChore.current_user_id} />
         
-        <button
-          onClick={() => markChoreDone(activeChore.id)}
-          className="mt-10 flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
-        >
-          <CheckCircle size={24} />
-          I have done it!
-        </button>
+        {/* Photo upload + done */}
+        <div className="mt-10 flex flex-col items-center gap-3 w-full">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={e => setPhotoFile(e.target.files?.[0] ?? null)}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-semibold border transition-colors ${
+              photoFile
+                ? 'bg-purple-100 text-purple-700 border-purple-300'
+                : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+            }`}
+          >
+            <Camera size={16} />
+            {photoFile ? `📷 ${photoFile.name}` : 'Add photo (+1 pt)'}
+          </button>
+          <button
+            onClick={async () => {
+              await markChoreDone(activeChore.id, photoFile ?? undefined);
+              setPhotoFile(null);
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }}
+            className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+          >
+            <CheckCircle size={24} />
+            I have done it!
+          </button>
+        </div>
       </div>
 
       {/* Next Upcoming Overall */}
