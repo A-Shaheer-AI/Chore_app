@@ -26,6 +26,7 @@ export type Chore = {
   target_date?: number;
   current_user_id: string;
   due_date: number;
+  assigned_user_ids: string[] | null; // null = all users
 };
 
 export type ChoreHistory = {
@@ -73,6 +74,7 @@ interface AppState {
   updateUserRentDueDate: (id: string, date: string | null) => Promise<void>;
   addChore: (payload: Omit<Chore, 'id' | 'current_user_id' | 'due_date'>) => Promise<void>;
   removeChore: (id: string) => Promise<void>;
+  updateChoreAssignment: (choreId: string, userIds: string[] | null) => Promise<void>;
   redeemSkipTurn: (userId: string) => Promise<void>;
   cheerReceipt: (receiptId: string, cheererId: string, receiptUserId: string) => Promise<void>;
   postAnnouncement: (authorId: string, title: string, message: string) => Promise<void>;
@@ -216,6 +218,13 @@ export const useStore = create<AppState>((set, get) => ({
     const targetChore = state.chores.find(c => c.id === choreId);
     if (!targetChore) return;
 
+    // Respect per-chore user assignment: null = everyone, otherwise filter
+    const eligibleUsers = targetChore.assigned_user_ids && targetChore.assigned_user_ids.length > 0
+      ? activeUsers.filter(u => targetChore.assigned_user_ids!.includes(u.id))
+      : activeUsers;
+
+    if (eligibleUsers.length === 0) return;
+
     const userForHistory = state.users.find(u => u.id === targetChore.current_user_id);
 
     const hoursOverdue = (now - targetChore.due_date) / (1000 * 60 * 60);
@@ -277,11 +286,11 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     let nextUserIndex = 0;
-    const currentUserActiveIndex = activeUsers.findIndex(u => u.id === targetChore.current_user_id);
-    if (currentUserActiveIndex !== -1) {
-      nextUserIndex = (currentUserActiveIndex + 1) % activeUsers.length;
+    const currentUserEligibleIndex = eligibleUsers.findIndex(u => u.id === targetChore.current_user_id);
+    if (currentUserEligibleIndex !== -1) {
+      nextUserIndex = (currentUserEligibleIndex + 1) % eligibleUsers.length;
     }
-    let nextUser = activeUsers[nextUserIndex];
+    let nextUser = eligibleUsers[nextUserIndex];
 
     if (nextUser && nextUser.skip_next_chore) {
       await supabase.from('users').update({ skip_next_chore: false }).eq('id', nextUser.id);
@@ -292,8 +301,8 @@ export const useStore = create<AppState>((set, get) => ({
         details: { message: nextUser.name + ' used their skip-turn token' },
         created_at: now + 2,
       });
-      nextUserIndex = (nextUserIndex + 1) % activeUsers.length;
-      nextUser = activeUsers[nextUserIndex];
+      nextUserIndex = (nextUserIndex + 1) % eligibleUsers.length;
+      nextUser = eligibleUsers[nextUserIndex];
       if (nextUser) sendNotification('Turn Skipped', nextUser.name + ', it is now your turn for ' + targetChore.name + '!');
     } else {
       if (nextUser) sendNotification('Your Turn!', nextUser.name + ', it is your turn for ' + targetChore.name + '!');
@@ -362,7 +371,11 @@ export const useStore = create<AppState>((set, get) => ({
       if (!u.away_start || !u.away_end) return true;
       return !isWithinInterval(now, { start: u.away_start, end: u.away_end });
     });
-    const assignedUser = activeUsers.length > 0 ? activeUsers[0].id : state.users[0]?.id;
+    // Respect assigned_user_ids for initial assignment
+    const eligibleActive = payload.assigned_user_ids && payload.assigned_user_ids.length > 0
+      ? activeUsers.filter(u => payload.assigned_user_ids!.includes(u.id))
+      : activeUsers;
+    const assignedUser = eligibleActive.length > 0 ? eligibleActive[0].id : state.users[0]?.id;
     if (!assignedUser) return;
     const initialDueDate = calculateNextDueDate(payload, new Date());
     await supabase.from('chores').insert({
@@ -374,6 +387,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeChore: async (id) => {
     await supabase.from('chores').delete().eq('id', id);
+  },
+
+  updateChoreAssignment: async (choreId, userIds) => {
+    await supabase.from('chores').update({
+      assigned_user_ids: userIds && userIds.length > 0 ? userIds : null,
+    }).eq('id', choreId);
   },
 
   redeemSkipTurn: async (userId) => {

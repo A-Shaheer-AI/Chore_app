@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useStore } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
-import { Trash2, UserPlus, Plus, SkipForward, Calendar } from 'lucide-react';
+import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users } from 'lucide-react';
 
 export const Management = () => {
-  const { users, chores, addUser, removeUser, updateUserAway, updateUserRentDueDate, redeemSkipTurn, addChore, removeChore, currentUserId } = useStore();
+  const { users, chores, addUser, removeUser, updateUserAway, updateUserRentDueDate, redeemSkipTurn, addChore, removeChore, updateChoreAssignment, currentUserId } = useStore();
   
   const [newUserName, setNewUserName] = useState('');
   
@@ -16,14 +16,24 @@ export const Management = () => {
   const [frequencyDays, setFrequencyDays] = useState('3');
   const [dayOfWeek, setDayOfWeek] = useState('0'); // 0=Sun, 1=Mon...
   const [targetDate, setTargetDate] = useState(''); // YYYY-MM-DD
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]); // empty = all
+
+  // Edit-assignment state for existing chores
+  const [editingChoreId, setEditingChoreId] = useState<string | null>(null);
+  const [editUserIds, setEditUserIds] = useState<string[]>([]);
+
+  const toggleUserId = (id: string, list: string[], setList: (v: string[]) => void) => {
+    setList(list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
+  };
 
   const handleAddChore = () => {
     if (!choreName.trim()) return;
 
-    let payload: any = {
+    const payload: any = {
       name: choreName.trim(),
       schedule_type: scheduleType,
       time_of_day: timeOfDay,
+      assigned_user_ids: selectedUserIds.length > 0 ? selectedUserIds : null,
     };
 
     if (scheduleType === 'custom_interval') {
@@ -35,9 +45,8 @@ export const Management = () => {
     }
 
     addChore(payload);
-    
-    // Reset
     setChoreName('');
+    setSelectedUserIds([]);
   };
 
   return (
@@ -221,6 +230,35 @@ export const Management = () => {
             </div>
           )}
 
+          {/* Who does this chore? */}
+          {users.length > 0 && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-2 flex items-center gap-1">
+                <Users size={13} /> Who does this chore? <span className="text-gray-400">(leave all unchecked = everyone)</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {users.map(u => (
+                  <label key={u.id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border cursor-pointer text-sm font-medium transition-colors ${
+                    selectedUserIds.includes(u.id)
+                      ? 'bg-indigo-100 border-indigo-400 text-indigo-700'
+                      : 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      className="hidden"
+                      checked={selectedUserIds.includes(u.id)}
+                      onChange={() => toggleUserId(u.id, selectedUserIds, setSelectedUserIds)}
+                    />
+                    {u.name}
+                  </label>
+                ))}
+              </div>
+              {selectedUserIds.length > 0 && (
+                <p className="text-xs text-indigo-600 mt-1">Only {selectedUserIds.map(id => users.find(u => u.id === id)?.name).join(', ')} will rotate for this chore.</p>
+              )}
+            </div>
+          )}
+
           <button 
             onClick={handleAddChore}
             className="bg-primary text-white px-4 py-3 rounded flex items-center justify-center gap-1 hover:bg-purple-600 font-bold w-full"
@@ -232,16 +270,86 @@ export const Management = () => {
         <h3 className="font-bold text-gray-600 border-b pb-2 mb-3">Existing Chores</h3>
         <ul className="divide-y">
           {chores.map(chore => (
-            <li key={chore.id} className="py-3 flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-gray-800">{chore.name}</p>
-                <p className="text-sm text-gray-500 capitalize">
-                  {chore.schedule_type.replace('_', ' ')} @ {chore.time_of_day}
-                </p>
+            <li key={chore.id} className="py-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-gray-800">{chore.name}</p>
+                  <p className="text-sm text-gray-500 capitalize">
+                    {chore.schedule_type.replace('_', ' ')} @ {chore.time_of_day}
+                  </p>
+                  {/* Show assigned users */}
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {chore.assigned_user_ids && chore.assigned_user_ids.length > 0 ? (
+                      chore.assigned_user_ids.map(uid => {
+                        const u = users.find(x => x.id === uid);
+                        return u ? (
+                          <span key={uid} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{u.name}</span>
+                        ) : null;
+                      })
+                    ) : (
+                      <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Everyone</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <button
+                    onClick={() => {
+                      setEditingChoreId(editingChoreId === chore.id ? null : chore.id);
+                      setEditUserIds(chore.assigned_user_ids ?? []);
+                    }}
+                    className="text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-100 flex items-center gap-1"
+                  >
+                    <Users size={13} /> People
+                  </button>
+                  <button onClick={() => removeChore(chore.id)} className="text-red-500 hover:text-red-700 p-2 bg-red-50 rounded">
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
-              <button onClick={() => removeChore(chore.id)} className="text-red-500 hover:text-red-700 p-2 bg-red-50 rounded">
-                <Trash2 size={18} />
-              </button>
+
+              {/* Edit assignment panel */}
+              {editingChoreId === chore.id && (
+                <div className="mt-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <p className="text-xs font-bold text-indigo-700 mb-2 flex items-center gap-1"><Users size={13} /> Select who does "{chore.name}"</p>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {users.map(u => (
+                      <label key={u.id} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border cursor-pointer text-sm font-medium transition-colors ${
+                        editUserIds.includes(u.id)
+                          ? 'bg-indigo-100 border-indigo-400 text-indigo-700'
+                          : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          className="hidden"
+                          checked={editUserIds.includes(u.id)}
+                          onChange={() => toggleUserId(u.id, editUserIds, setEditUserIds)}
+                        />
+                        {u.name}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mb-2">
+                    {editUserIds.length === 0 ? 'All users will rotate.' : `Only ${editUserIds.map(id => users.find(u => u.id === id)?.name).join(', ')} will rotate.`}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        await updateChoreAssignment(chore.id, editUserIds.length > 0 ? editUserIds : null);
+                        setEditingChoreId(null);
+                      }}
+                      className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded font-bold hover:bg-indigo-700"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingChoreId(null)}
+                      className="text-xs bg-gray-200 text-gray-700 px-3 py-1.5 rounded hover:bg-gray-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>
