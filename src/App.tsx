@@ -10,10 +10,12 @@ function App() {
   const [currentTab, setCurrentTab] = useState<'dashboard' | 'management' | 'receipts' | 'announcements' | 'rules'>('dashboard');
   const { init, isLoaded, users, currentUserId, setCurrentUser } = useStore();
 
+  const [notificationState, setNotificationState] = useState<string>(Notification.permission);
+
   useEffect(() => {
     init();
-    // Ask for notification permission once
-    requestNotificationPermission();
+    // Ask for notification permission once silently
+    requestNotificationPermission().then(() => setNotificationState(Notification.permission));
   }, [init]);
 
   if (!isLoaded) {
@@ -23,18 +25,29 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
       {/* Top bar: user selector */}
-      <div className="bg-indigo-600 text-white px-4 py-2 flex items-center justify-between">
-        <span className="text-sm font-semibold">👤 I am:</span>
-        <select
-          value={currentUserId ?? ''}
-          onChange={e => setCurrentUser(e.target.value)}
-          className="text-sm bg-white text-gray-800 rounded px-2 py-1 font-medium"
-        >
-          <option value="">-- select your name --</option>
-          {users.map(u => (
-            <option key={u.id} value={u.id}>{u.name}</option>
-          ))}
-        </select>
+      <div className="bg-indigo-600 text-white px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <span className="text-sm font-semibold">🏠 I am:</span>
+          <select
+            value={currentUserId ?? ''}
+            onChange={e => setCurrentUser(e.target.value)}
+            className="text-sm bg-white text-gray-800 rounded px-2 py-1 font-medium flex-1 sm:flex-none"
+          >
+            <option value="">-- select your name --</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+        </div>
+        
+        {notificationState !== 'granted' && (
+          <button 
+            onClick={() => requestNotificationPermission().then(() => setNotificationState(Notification.permission))}
+            className="text-xs bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold px-3 py-1 rounded-full transition-colors whitespace-nowrap"
+          >
+            🔔 Enable Notifications
+          </button>
+        )}
       </div>
 
       {/* Navigation */}

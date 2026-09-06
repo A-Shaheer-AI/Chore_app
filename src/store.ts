@@ -237,11 +237,48 @@ export const useStore = create<AppState>((set, get) => ({
         const diff = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         const offset = u.rent_reminder_offset ?? 4;
         if (diff === offset) {
-          sendNotification("Rent Reminder", u.name + ", your rent is due in " + offset + " days (" + u.rent_due_date + ").");
+          const key = `rent_notified_${u.id}_${u.rent_due_date}`;
+          if (!localStorage.getItem(key)) {
+            sendNotification("Rent Reminder", u.name + ", your rent is due in " + offset + " days (" + u.rent_due_date + ").");
+            localStorage.setItem(key, "true");
+          }
         }
       });
     };
+    
+    const checkOverdueChores = (choreList: Chore[]) => {
+      const now = Date.now();
+      const currentUsers = get().users;
+      choreList.forEach(chore => {
+        const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
+        
+        if (hoursOverdue >= 24 && hoursOverdue < 48) {
+          const key = `notified_24h_${chore.id}_${chore.due_date}`;
+          if (!localStorage.getItem(key)) {
+            const currentUser = currentUsers.find(u => u.id === chore.current_user_id);
+            sendNotification("Chore Overdue (24h)", `Hey ${currentUser?.name || 'there'}, "${chore.name}" is over 24 hours late!`);
+            localStorage.setItem(key, "true");
+          }
+        }
+        
+        if (hoursOverdue >= 48) {
+          const key = `notified_48h_${chore.id}_${chore.due_date}`;
+          if (!localStorage.getItem(key)) {
+            const currentUser = currentUsers.find(u => u.id === chore.current_user_id);
+            sendNotification("Chore Penalty (48h+)", `Penalty! "${chore.name}" is over 48 hours late. Points will be deducted for ${currentUser?.name || 'the assigned person'}.`);
+            localStorage.setItem(key, "true");
+          }
+        }
+      });
+    };
+
     checkRentReminders(users || []);
+    checkOverdueChores(chores || []);
+    
+    // Periodically check for overdues every hour while tab is open
+    setInterval(() => {
+      checkOverdueChores(get().chores);
+    }, 60 * 60 * 1000);
   },
 
   setCurrentUser: (id) => set({ currentUserId: id }),
