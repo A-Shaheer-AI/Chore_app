@@ -115,6 +115,7 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
 };
 
 export const sendNotification = (title: string, body: string, icon = "/favicon.ico") => {
+  if (!("Notification" in window)) return;
   if (Notification.permission === "granted") {
     new Notification(title, { body, icon });
   }

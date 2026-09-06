@@ -10,7 +10,7 @@ function App() {
   const [currentTab, setCurrentTab] = useState<'dashboard' | 'management' | 'receipts' | 'announcements' | 'rules'>('dashboard');
   const { init, isLoaded, users, currentUserId, setCurrentUser } = useStore();
 
-  const [notificationState, setNotificationState] = useState<string>(Notification.permission);
+  const [notificationState, setNotificationState] = useState<string>('Notification' in window ? Notification.permission : 'unsupported');
 
   useEffect(() => {
     init();
@@ -40,9 +40,9 @@ function App() {
           </select>
         </div>
         
-        {notificationState !== 'granted' && (
+        {notificationState !== 'granted' && notificationState !== 'unsupported' && (
           <button 
-            onClick={() => requestNotificationPermission().then(() => setNotificationState(Notification.permission))}
+            onClick={() => requestNotificationPermission().then(() => setNotificationState('Notification' in window ? Notification.permission : 'unsupported'))}
             className="text-xs bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold px-3 py-1 rounded-full transition-colors whitespace-nowrap"
           >
             🔔 Enable Notifications
