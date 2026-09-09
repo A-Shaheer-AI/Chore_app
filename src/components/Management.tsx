@@ -5,11 +5,9 @@ import { format, addDays } from 'date-fns';
 import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users } from 'lucide-react';
 
 export const Management = () => {
-  const { users, chores, addUser, removeUser, updateUserAway, updateUserRentDueDate, updateUserPoints, redeemSkipTurn, addChore, removeChore, updateChoreAssignment, currentUserId } = useStore();
+  const { users, chores, addUser, removeUser, updateUserAway, updateUserRentDueDate, redeemSkipTurn, addChore, removeChore, updateChoreAssignment, currentUserId } = useStore();
   
   const [newUserName, setNewUserName] = useState('');
-  const [editingPointsId, setEditingPointsId] = useState<string | null>(null);
-  const [pointsInput, setPointsInput] = useState<string>('0');
   
   // Chore Form State
   const [choreName, setChoreName] = useState('');
@@ -110,45 +108,7 @@ export const Management = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-semibold text-gray-800">{user.name}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-gray-500 font-medium">{user.points} pts</span>
-                    {editingPointsId === user.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          value={pointsInput}
-                          onChange={e => setPointsInput(e.target.value)}
-                          className="w-16 text-xs border border-gray-300 rounded px-1 py-0.5"
-                          autoFocus
-                        />
-                        <button
-                          onClick={async () => {
-                            await updateUserPoints(user.id, Number(pointsInput) || 0);
-                            setEditingPointsId(null);
-                          }}
-                          className="text-xs bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold hover:bg-indigo-700"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setEditingPointsId(null)}
-                          className="text-xs text-gray-400 hover:text-gray-600"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setEditingPointsId(user.id);
-                          setPointsInput(String(user.points));
-                        }}
-                        className="text-[10px] text-indigo-500 hover:text-indigo-700 underline"
-                      >
-                        edit points
-                      </button>
-                    )}
-                  </div>
+                  <p className="text-xs text-gray-400">{user.points} pts</p>
                   <div className="flex items-center gap-2 mt-1 text-sm">
                     <span className="text-gray-500">Away:</span>
                     {user.away_start && user.away_end ? (

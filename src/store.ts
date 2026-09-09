@@ -81,7 +81,6 @@ interface AppState {
   removeUser: (id: string) => Promise<void>;
   updateUserAway: (id: string, start: number | null, end: number | null) => Promise<void>;
   updateUserRentDueDate: (id: string, date: string | null) => Promise<void>;
-  updateUserPoints: (id: string, points: number) => Promise<void>;
   addChore: (payload: Omit<Chore, 'id' | 'current_user_id' | 'due_date' | 'rotation_order'>) => Promise<void>;
   removeChore: (id: string) => Promise<void>;
   updateChoreAssignment: (choreId: string, userIds: string[] | null) => Promise<void>;
@@ -561,13 +560,6 @@ export const useStore = create<AppState>((set, get) => ({
     await supabase.from("users").update({ rent_due_date: date }).eq("id", id);
     set(s => ({
       users: s.users.map(u => u.id === id ? { ...u, rent_due_date: date } : u)
-    }));
-  },
-
-  updateUserPoints: async (id, points) => {
-    await supabase.from("users").update({ points }).eq("id", id);
-    set(s => ({
-      users: s.users.map(u => u.id === id ? { ...u, points } : u)
     }));
   },
 
