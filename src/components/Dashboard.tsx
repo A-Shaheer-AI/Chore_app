@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { formatDistanceToNow, isPast, format } from 'date-fns';
 import { useStore, computeRotation, getNextUser } from '../store';
-import { CheckCircle, Clock, Camera, Users, ChevronRight, X } from 'lucide-react';
+import { CheckCircle, Clock, Camera, Users, ChevronRight, X, Lock } from 'lucide-react';
 
 export const Dashboard = () => {
-  const { users, chores, markChoreDone } = useStore();
+  const { users, chores, currentUserId, markChoreDone } = useStore();
   const [currentTime, setCurrentTime] = useState(Date.now());
   
   // Per-chore photo uploads
@@ -112,36 +112,60 @@ export const Dashboard = () => {
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="mt-6 flex flex-col sm:flex-row items-center gap-3 w-full">
-                <input
-                  ref={el => { fileInputRefs.current[chore.id] = el; }}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={e => handleFileChange(chore.id, e.target.files?.[0] ?? null)}
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRefs.current[chore.id]?.click()}
-                  className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold border transition-colors w-full sm:w-auto ${
-                    photoFile
-                      ? 'bg-purple-100 text-purple-700 border-purple-300'
-                      : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
-                  }`}
-                >
-                  <Camera size={18} />
-                  {photoFile ? `📷 ${photoFile.name}` : 'Add photo (+1 pt)'}
-                </button>
-                <button
-                  onClick={() => handleDone(chore.id)}
-                  disabled={submittingId === chore.id}
-                  className="flex-1 w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all"
-                >
-                  <CheckCircle size={24} />
-                  {submittingId === chore.id ? 'Updating turn...' : 'Mark as Done'}
-                </button>
-              </div>
+              {/* Action Buttons or Turn Restrictions */}
+              {(() => {
+                const isMyTurn = Boolean(currentUserId && currentUserId === chore.current_user_id);
+                const assignedPerson = currentUser?.name ?? 'the assigned person';
+
+                if (isMyTurn) {
+                  return (
+                    <div className="mt-6 flex flex-col sm:flex-row items-center gap-3 w-full">
+                      <input
+                        ref={el => { fileInputRefs.current[chore.id] = el; }}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => handleFileChange(chore.id, e.target.files?.[0] ?? null)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRefs.current[chore.id]?.click()}
+                        className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold border transition-colors w-full sm:w-auto ${
+                          photoFile
+                            ? 'bg-purple-100 text-purple-700 border-purple-300'
+                            : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+                        }`}
+                      >
+                        <Camera size={18} />
+                        {photoFile ? `📷 ${photoFile.name}` : 'Add photo (+1 pt)'}
+                      </button>
+                      <button
+                        onClick={() => handleDone(chore.id)}
+                        disabled={submittingId === chore.id}
+                        className="flex-1 w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all"
+                      >
+                        <CheckCircle size={24} />
+                        {submittingId === chore.id ? 'Updating turn...' : 'Mark as Done'}
+                      </button>
+                    </div>
+                  );
+                }
+
+                if (!currentUserId) {
+                  return (
+                    <div className="mt-6 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-800">
+                      <span>Select your name in <strong>"🏠 I am"</strong> at the top to complete your chores.</span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="mt-6 p-3.5 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-2 text-xs text-gray-500 font-medium">
+                    <Lock size={15} className="text-gray-400 shrink-0" />
+                    <span>Only <strong>{assignedPerson}</strong> can upload photos or mark this done right now.</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );

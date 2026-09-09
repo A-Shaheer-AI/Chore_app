@@ -55,12 +55,20 @@ export type Announcement = {
   created_at: number;
 };
 
+export type CheerLog = {
+  id?: string;
+  user_id: string;
+  receipt_id: string;
+  created_at?: number;
+};
+
 interface AppState {
   users: User[];
   chores: Chore[];
   history: ChoreHistory[];
   receipts: Receipt[];
   announcements: Announcement[];
+  cheers: CheerLog[];
   activeChoreId: string | null;
   isLoaded: boolean;
   currentUserId: string | null;
@@ -174,6 +182,7 @@ export const useStore = create<AppState>((set, get) => ({
   history: [],
   receipts: [],
   announcements: [],
+  cheers: [],
   activeChoreId: null,
   isLoaded: false,
   currentUserId: null,
@@ -185,13 +194,18 @@ export const useStore = create<AppState>((set, get) => ({
       { data: history },
       { data: receipts },
       { data: announcements },
+      { data: cheers },
     ] = await Promise.all([
       supabase.from("users").select("*"),
       supabase.from("chores").select("*"),
       supabase.from("history").select("*").order("completed_at", { ascending: false }).limit(50),
       supabase.from("receipts").select("*").order("created_at", { ascending: false }).limit(100),
       supabase.from("announcements").select("*").order("created_at", { ascending: false }),
+      supabase.from("cheer_log").select("*"),
     ]);
+
+    const savedUserId = typeof window !== 'undefined' ? localStorage.getItem('chore_current_user_id') : null;
+    const initialUserId = users?.some(u => u.id === savedUserId) ? savedUserId : null;
 
     set({
       users: users || [],
@@ -199,7 +213,9 @@ export const useStore = create<AppState>((set, get) => ({
       history: history || [],
       receipts: receipts || [],
       announcements: announcements || [],
+      cheers: cheers || [],
       activeChoreId: chores && chores.length > 0 ? chores[0].id : null,
+      currentUserId: initialUserId,
       isLoaded: true,
     });
 
@@ -225,6 +241,12 @@ export const useStore = create<AppState>((set, get) => ({
       .on("postgres_changes", { event: "*", schema: "public", table: "receipts" }, async () => {
         const { data } = await supabase.from("receipts").select("*").order("created_at", { ascending: false }).limit(100);
         if (data) set({ receipts: data });
+      }).subscribe();
+
+    supabase.channel("public:cheer_log")
+      .on("postgres_changes", { event: "*", schema: "public", table: "cheer_log" }, async () => {
+        const { data } = await supabase.from("cheer_log").select("*");
+        if (data) set({ cheers: data || [] });
       }).subscribe();
 
     supabase.channel("public:announcements")
@@ -287,7 +309,13 @@ export const useStore = create<AppState>((set, get) => ({
     }, 60 * 60 * 1000);
   },
 
-  setCurrentUser: (id) => set({ currentUserId: id }),
+  setCurrentUser: (id) => {
+    if (typeof window !== 'undefined') {
+      if (id) localStorage.setItem('chore_current_user_id', id);
+      else localStorage.removeItem('chore_current_user_id');
+    }
+    set({ currentUserId: id || null });
+  },
   setActiveChore: (id) => set({ activeChoreId: id }),
 
   markChoreDone: async (choreId, photoFile) => {
@@ -296,6 +324,12 @@ export const useStore = create<AppState>((set, get) => ({
 
     const targetChore = state.chores.find(c => c.id === choreId);
     if (!targetChore) return;
+
+    // Only allow the person whose turn it is to mark as done
+    if (!state.currentUserId || state.currentUserId !== targetChore.current_user_id) {
+      console.warn("Only the assigned person can mark this chore as done.");
+      return;
+    }
 
     const rotation = computeRotation(targetChore, state.users);
     if (rotation.length === 0) return;
@@ -530,15 +564,32 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   cheerReceipt: async (receiptId, cheererId, receiptUserId) => {
+    const state = get();
+    // Cannot cheer own receipt
+    if (cheererId === receiptUserId) return;
+    // Cannot cheer twice
+    if (state.cheers.some(c => c.user_id === cheererId && c.receipt_id === receiptId)) return;
+
+    // Optimistically update local state immediately
+    set(s => ({
+      cheers: [...s.cheers, { user_id: cheererId, receipt_id: receiptId }],
+      users: s.users.map(u => u.id === receiptUserId ? { ...u, points: (u.points || 0) + 1 } : u),
+    }));
+
     const { error } = await supabase.from("cheer_log").insert({
       user_id: cheererId,
       receipt_id: receiptId,
       created_at: Date.now(),
     });
-    if (error) return;
-    const state = get();
+
+    if (error) {
+      console.warn("Cheer insert error (already cheered or DB error):", error);
+      return;
+    }
+
     const cheeredUser = state.users.find(u => u.id === receiptUserId);
     if (!cheeredUser) return;
+
     await supabase.from("users").update({ points: (cheeredUser.points || 0) + 1 }).eq("id", receiptUserId);
     await supabase.from("receipts").insert({
       user_id: receiptUserId,
