@@ -15,12 +15,13 @@ export const Rules = () => {
 
           <section>
             <h2 className="text-xl font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
-              <Info className="text-blue-500" /> The Roulette Wheel
+              <Info className="text-blue-500" /> Chore Rotation &amp; Dashboard
             </h2>
             <ul className="list-disc pl-5 text-gray-600 space-y-2">
-              <li><strong>The Rotation:</strong> The wheel runs clockwise among all active members.</li>
-              <li><strong>Up Next:</strong> The highlighted name in the center is currently on duty.</li>
-              <li><strong>Completing a Chore:</strong> Click <strong>I have done it!</strong> — points are awarded and the next person is assigned.</li>
+              <li><strong>All Chores Visible:</strong> Every chore is displayed on the Dashboard along with its due date, current turn, and next person up.</li>
+              <li><strong>Current Turn:</strong> Only the person whose turn it is can upload completion photos and mark the chore as done.</li>
+              <li><strong>Full Rotation:</strong> Click on <strong>Next Up</strong> to view the entire randomized rotation order for any chore.</li>
+              <li><strong>Custom Assignments:</strong> Some chores are done only by specific roommates, rotating exclusively between them.</li>
             </ul>
           </section>
 

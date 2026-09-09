@@ -31,15 +31,20 @@ export const Management = () => {
   const handleAddChore = () => {
     if (!choreName.trim()) return;
 
+    if (scheduleType === 'specific_date' && !targetDate) {
+      alert("Please select a date for this chore.");
+      return;
+    }
+
     const payload: any = {
       name: choreName.trim(),
       schedule_type: scheduleType,
-      time_of_day: timeOfDay,
+      time_of_day: timeOfDay || '12:00',
       assigned_user_ids: selectedUserIds.length > 0 ? selectedUserIds : null,
     };
 
     if (scheduleType === 'custom_interval') {
-      payload.frequency_days = Number(frequencyDays);
+      payload.frequency_days = Math.max(1, Number(frequencyDays) || 1);
     } else if (scheduleType === 'weekly') {
       payload.day_of_week = Number(dayOfWeek);
     } else if (scheduleType === 'specific_date' && targetDate) {
@@ -48,6 +53,7 @@ export const Management = () => {
 
     addChore(payload);
     setChoreName('');
+    setTargetDate('');
     setSelectedUserIds([]);
   };
 
@@ -83,10 +89,14 @@ export const Management = () => {
           />
           <button 
             onClick={() => {
-              if (newUserName.trim()) {
-                addUser(newUserName.trim());
-                setNewUserName('');
+              const trimmed = newUserName.trim();
+              if (!trimmed) return;
+              if (users.some(u => u.name.toLowerCase() === trimmed.toLowerCase())) {
+                alert("A roommate with this name already exists.");
+                return;
               }
+              addUser(trimmed);
+              setNewUserName('');
             }}
             className="bg-primary text-white px-4 py-2 rounded flex items-center gap-1 hover:bg-purple-600"
           >
@@ -166,7 +176,14 @@ export const Management = () => {
                   >
                     Toggle Away
                   </button>
-                  <button onClick={() => removeUser(user.id)} className="text-red-500 hover:text-red-700 p-1">
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to remove ${user.name}? Their chores will be reassigned.`)) {
+                        removeUser(user.id);
+                      }
+                    }}
+                    className="text-red-500 hover:text-red-700 p-1"
+                  >
                     <Trash2 size={18} />
                   </button>
                 </div>
@@ -341,7 +358,14 @@ export const Management = () => {
                   >
                     <Users size={13} /> People
                   </button>
-                  <button onClick={() => removeChore(chore.id)} className="text-red-500 hover:text-red-700 p-2 bg-red-50 rounded">
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to delete "${chore.name}"?`)) {
+                        removeChore(chore.id);
+                      }
+                    }}
+                    className="text-red-500 hover:text-red-700 p-2 bg-red-50 rounded"
+                  >
                     <Trash2 size={18} />
                   </button>
                 </div>

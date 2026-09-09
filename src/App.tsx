@@ -15,7 +15,9 @@ function App() {
   useEffect(() => {
     init();
     // Ask for notification permission once silently
-    requestNotificationPermission().then(() => setNotificationState(Notification.permission));
+    requestNotificationPermission().then(() => {
+      setNotificationState('Notification' in window ? Notification.permission : 'unsupported');
+    });
   }, [init]);
 
   if (!isLoaded) {

@@ -32,7 +32,7 @@ export const Announcements = () => {
 
         {!currentUserId && (
           <p className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded p-3 mb-4">
-            Select your name in the Management tab to post announcements.
+            Select your name in <strong>"🏠 I am"</strong> at the top to post announcements.
           </p>
         )}
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { addDays, isWithinInterval, nextDay, setHours, setMinutes } from 'date-fns';
+import { addDays, isWithinInterval, nextDay } from 'date-fns';
 import type { Day } from 'date-fns';
 import { supabase } from './supabase';
 
@@ -92,7 +92,9 @@ interface AppState {
 
 const applyTime = (date: Date, timeString: string): Date => {
   const [hours, minutes] = timeString.split(':').map(Number);
-  return setMinutes(setHours(date, hours || 0), minutes || 0);
+  const d = new Date(date);
+  d.setHours(hours || 0, minutes || 0, 0, 0);
+  return d;
 };
 
 export const calculateNextDueDate = (chore: Partial<Chore>, fromDate: Date = new Date()): number => {
@@ -116,7 +118,7 @@ export const calculateNextDueDate = (chore: Partial<Chore>, fromDate: Date = new
 };
 
 export const requestNotificationPermission = async (): Promise<boolean> => {
-  if (!("Notification" in window)) return false;
+  if (typeof window === "undefined" || !("Notification" in window)) return false;
   if (Notification.permission === "granted") return true;
   if (Notification.permission === "denied") return false;
   const result = await Notification.requestPermission();
@@ -147,7 +149,9 @@ export const computeRotation = (chore: Partial<Chore>, users: User[]): User[] =>
   const now = Date.now();
   const activeUsers = users.filter(u => {
     if (!u.away_start || !u.away_end) return true;
-    return !isWithinInterval(now, { start: u.away_start, end: u.away_end });
+    const start = Math.min(u.away_start, u.away_end);
+    const end = Math.max(u.away_start, u.away_end);
+    return !isWithinInterval(now, { start, end });
   });
 
   const eligibleUsers = chore.assigned_user_ids && chore.assigned_user_ids.length > 0
@@ -254,20 +258,34 @@ export const useStore = create<AppState>((set, get) => ({
         const { data } = await supabase.from("announcements").select("*").order("created_at", { ascending: false });
         if (data) set({ announcements: data });
         const row = payload.new as Announcement;
-        sendNotification("Announcement: " + row.title, row.message);
+        // Only notify if not posted by current user
+        if (row.author_id !== get().currentUserId) {
+          sendNotification("Announcement: " + row.title, row.message);
+        }
       }).subscribe();
 
     const checkRentReminders = (userList: User[]) => {
-      const today = new Date();
+      const activeUserId = get().currentUserId;
+      if (!activeUserId) return;
+
+      const now = new Date();
+      const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
       userList.forEach(u => {
-        if (!u.rent_due_date) return;
-        const due = new Date(u.rent_due_date);
-        const diff = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        // Only notify the person whose rent is due!
+        if (u.id !== activeUserId || !u.rent_due_date) return;
+
+        const [y, m, d] = u.rent_due_date.split('-').map(Number);
+        if (!y || !m || !d) return;
+
+        const dueDate = new Date(y, m - 1, d);
+        const diff = Math.round((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
         const offset = u.rent_reminder_offset ?? 4;
+
         if (diff === offset) {
           const key = `rent_notified_${u.id}_${u.rent_due_date}`;
           if (!localStorage.getItem(key)) {
-            sendNotification("Rent Reminder", u.name + ", your rent is due in " + offset + " days (" + u.rent_due_date + ").");
+            sendNotification("Rent Reminder", `${u.name}, your rent is due in ${offset} days (${u.rent_due_date}).`);
             localStorage.setItem(key, "true");
           }
         }
@@ -276,15 +294,19 @@ export const useStore = create<AppState>((set, get) => ({
     
     const checkOverdueChores = (choreList: Chore[]) => {
       const now = Date.now();
-      const currentUsers = get().users;
+      const activeUserId = get().currentUserId;
+      if (!activeUserId) return;
+
       choreList.forEach(chore => {
+        // Only notify the person whose turn is overdue!
+        if (chore.current_user_id !== activeUserId) return;
+
         const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
         
         if (hoursOverdue >= 24 && hoursOverdue < 48) {
           const key = `notified_24h_${chore.id}_${chore.due_date}`;
           if (!localStorage.getItem(key)) {
-            const currentUser = currentUsers.find(u => u.id === chore.current_user_id);
-            sendNotification("Chore Overdue (24h)", `Hey ${currentUser?.name || 'there'}, "${chore.name}" is over 24 hours late!`);
+            sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
             localStorage.setItem(key, "true");
           }
         }
@@ -292,8 +314,7 @@ export const useStore = create<AppState>((set, get) => ({
         if (hoursOverdue >= 48) {
           const key = `notified_48h_${chore.id}_${chore.due_date}`;
           if (!localStorage.getItem(key)) {
-            const currentUser = currentUsers.find(u => u.id === chore.current_user_id);
-            sendNotification("Chore Penalty (48h+)", `Penalty! "${chore.name}" is over 48 hours late. Points will be deducted for ${currentUser?.name || 'the assigned person'}.`);
+            sendNotification("Chore Penalty (48h+)", `Penalty! "${chore.name}" is over 48 hours late (-4 pts).`);
             localStorage.setItem(key, "true");
           }
         }
@@ -471,7 +492,52 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   removeUser: async (id) => {
+    const state = get();
+    const otherUsers = state.users.filter(u => u.id !== id);
+
+    // 1. Reassign any chores currently assigned to this user to avoid FK error
+    for (const chore of state.chores) {
+      if (chore.current_user_id === id) {
+        const rotation = computeRotation(chore, otherUsers);
+        const newAssignee = rotation.length > 0 ? rotation[0].id : (otherUsers[0]?.id || null);
+        if (newAssignee) {
+          await supabase.from("chores").update({ current_user_id: newAssignee }).eq("id", chore.id);
+        }
+      }
+
+      // Also clean up assigned_user_ids and rotation_order
+      const hasAssigned = chore.assigned_user_ids?.includes(id);
+      const hasRotation = chore.rotation_order?.includes(id);
+      if (hasAssigned || hasRotation) {
+        const newAssigned = chore.assigned_user_ids ? chore.assigned_user_ids.filter(uid => uid !== id) : null;
+        const newRotation = chore.rotation_order ? chore.rotation_order.filter(uid => uid !== id) : null;
+        await supabase.from("chores").update({
+          assigned_user_ids: newAssigned && newAssigned.length > 0 ? newAssigned : null,
+          rotation_order: newRotation,
+        }).eq("id", chore.id);
+      }
+    }
+
+    // 2. Delete user from Supabase
     await supabase.from("users").delete().eq("id", id);
+
+    // 3. Clear local storage if current user was removed
+    if (state.currentUserId === id && typeof window !== 'undefined') {
+      localStorage.removeItem('chore_current_user_id');
+    }
+
+    // 4. Update local state immediately
+    set(s => ({
+      users: s.users.filter(u => u.id !== id),
+      currentUserId: s.currentUserId === id ? null : s.currentUserId,
+      chores: s.chores.map(c => {
+        if (c.current_user_id === id) {
+          const newAssignee = otherUsers[0]?.id || c.current_user_id;
+          return { ...c, current_user_id: newAssignee };
+        }
+        return c;
+      }),
+    }));
   },
 
   updateUserAway: async (id, start, end) => {
@@ -493,6 +559,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   updateUserRentDueDate: async (id, date) => {
     await supabase.from("users").update({ rent_due_date: date }).eq("id", id);
+    set(s => ({
+      users: s.users.map(u => u.id === id ? { ...u, rent_due_date: date } : u)
+    }));
   },
 
   updateUserPoints: async (id, points) => {
@@ -530,6 +599,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   removeChore: async (id) => {
     await supabase.from("chores").delete().eq("id", id);
+    set(s => ({
+      chores: s.chores.filter(c => c.id !== id),
+    }));
   },
 
   updateChoreAssignment: async (choreId, userIds) => {
@@ -544,6 +616,14 @@ export const useStore = create<AppState>((set, get) => ({
       assigned_user_ids: userIds && userIds.length > 0 ? userIds : null,
       rotation_order,
     }).eq("id", choreId);
+
+    set(s => ({
+      chores: s.chores.map(c => c.id === choreId ? {
+        ...c,
+        assigned_user_ids: userIds && userIds.length > 0 ? userIds : null,
+        rotation_order,
+      } : c)
+    }));
   },
 
   redeemSkipTurn: async (userId) => {
@@ -601,11 +681,20 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   postAnnouncement: async (authorId, title, message) => {
+    const now = Date.now();
     await supabase.from("announcements").insert({
       author_id: authorId,
       title,
       message,
-      created_at: Date.now(),
+      created_at: now,
+    });
+    // Also record in receipts feed so it's transparent in the activity feed
+    await supabase.from("receipts").insert({
+      user_id: authorId,
+      chore_id: null,
+      type: "announcement",
+      details: { message: `📢 ${title}: ${message}` },
+      created_at: now,
     });
   },
 }));
