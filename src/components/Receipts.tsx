@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { format } from 'date-fns';
 import { useStore } from '../store';
+import { supabase } from '../supabase';
 import { Heart, CheckCircle, Camera, SkipForward, Megaphone } from 'lucide-react';
 
 const TYPE_META: Record<string, { icon: ReactElement; label: string; color: string }> = {
@@ -57,9 +58,28 @@ export const Receipts = () => {
                   {typeof details.message === 'string' && details.message && (
                     <p className="text-xs text-gray-500 mt-0.5">{details.message}</p>
                   )}
-                  {typeof details.storage_path === 'string' && details.storage_path && (
-                    <p className="text-xs text-purple-500 mt-0.5 italic">&#128247; Photo attached</p>
-                  )}
+                  {(() => {
+                    const photoPath = (typeof details.storage_path === 'string' && details.storage_path)
+                      ? details.storage_path
+                      : (typeof details.photo_path === 'string' && details.photo_path)
+                        ? details.photo_path
+                        : null;
+
+                    if (!photoPath) return null;
+                    const publicUrl = supabase.storage.from('chore_photos').getPublicUrl(photoPath).data.publicUrl;
+
+                    return (
+                      <div className="mt-2">
+                        <img
+                          src={publicUrl}
+                          alt="Chore proof"
+                          className="rounded-xl max-h-60 max-w-full object-cover border border-gray-200 shadow-sm cursor-pointer hover:opacity-95"
+                          onClick={() => window.open(publicUrl, '_blank')}
+                          loading="lazy"
+                        />
+                      </div>
+                    );
+                  })()}
                   <p className="text-xs text-gray-400 mt-1">{format(r.created_at, 'MMM do, h:mm a')}</p>
                 </div>
                 {canCheer && (

@@ -73,6 +73,7 @@ interface AppState {
   removeUser: (id: string) => Promise<void>;
   updateUserAway: (id: string, start: number | null, end: number | null) => Promise<void>;
   updateUserRentDueDate: (id: string, date: string | null) => Promise<void>;
+  updateUserPoints: (id: string, points: number) => Promise<void>;
   addChore: (payload: Omit<Chore, 'id' | 'current_user_id' | 'due_date' | 'rotation_order'>) => Promise<void>;
   removeChore: (id: string) => Promise<void>;
   updateChoreAssignment: (choreId: string, userIds: string[] | null) => Promise<void>;
@@ -115,9 +116,13 @@ export const requestNotificationPermission = async (): Promise<boolean> => {
 };
 
 export const sendNotification = (title: string, body: string, icon = "/favicon.ico") => {
-  if (!("Notification" in window)) return;
-  if (Notification.permission === "granted") {
-    new Notification(title, { body, icon });
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  try {
+    if (Notification.permission === "granted") {
+      new Notification(title, { body, icon });
+    }
+  } catch (e) {
+    console.warn("Notification error:", e);
   }
 };
 
@@ -307,34 +312,46 @@ export const useStore = create<AppState>((set, get) => ({
     let storagePath: string | null = null;
 
     if (photoFile && userForHistory) {
-      const ext = photoFile.name.split(".").pop();
-      const path = "chore_photos/" + choreId + "_" + now + "." + ext;
-      const { error: uploadError } = await supabase.storage.from("chore_photos").upload(path, photoFile);
-      if (!uploadError) {
-        storagePath = path;
-        photoBonus = 1;
-        const expiresAt = now + 7 * 24 * 60 * 60 * 1000;
-        const { data: photoReceiptRow } = await supabase.from("receipts").insert({
-          user_id: userForHistory.id,
-          chore_id: choreId,
-          type: "photo",
-          details: { storage_path: storagePath, points_awarded: 1 },
-          created_at: now + 1,
-        }).select().single();
-        if (photoReceiptRow) {
-          await supabase.from("chore_photos").insert({
-            receipt_id: photoReceiptRow.id,
-            storage_path: storagePath,
-            uploaded_at: now,
-            expires_at: expiresAt,
-          });
+      const ext = photoFile.name.split(".").pop() || "jpg";
+      const filename = `${choreId}_${now}.${ext}`;
+      try {
+        const { error: uploadError } = await supabase.storage
+          .from("chore_photos")
+          .upload(filename, photoFile, { upsert: true });
+
+        if (uploadError) {
+          console.error("Storage upload error:", uploadError);
+        } else {
+          storagePath = filename;
+          photoBonus = 1;
+          const expiresAt = now + 7 * 24 * 60 * 60 * 1000;
+          const { data: photoReceiptRow } = await supabase.from("receipts").insert({
+            user_id: userForHistory.id,
+            chore_id: choreId,
+            type: "photo",
+            details: { storage_path: storagePath, points_awarded: 1 },
+            created_at: now + 1,
+          }).select().single();
+
+          if (photoReceiptRow) {
+            await supabase.from("chore_photos").insert({
+              receipt_id: photoReceiptRow.id,
+              storage_path: storagePath,
+              uploaded_at: now,
+              expires_at: expiresAt,
+            });
+          }
         }
+      } catch (uploadErr) {
+        console.error("Photo upload exception:", uploadErr);
       }
     }
 
     const totalPoints = pointsEarned + photoBonus;
 
     if (userForHistory) {
+      const newPoints = (userForHistory.points || 0) + totalPoints;
+
       await supabase.from("history").insert({
         chore_name: targetChore.name,
         user_name: userForHistory.name,
@@ -346,13 +363,18 @@ export const useStore = create<AppState>((set, get) => ({
         user_id: userForHistory.id,
         chore_id: choreId,
         type: "completion",
-        details: { points_awarded: totalPoints, photo_path: storagePath },
+        details: { points_awarded: totalPoints, storage_path: storagePath },
         created_at: now,
       });
 
       await supabase.from("users").update({
-        points: (userForHistory.points || 0) + totalPoints,
+        points: newPoints,
       }).eq("id", userForHistory.id);
+
+      // Immediately update user points in local Zustand store
+      set(s => ({
+        users: s.users.map(u => u.id === userForHistory.id ? { ...u, points: newPoints } : u)
+      }));
     }
 
     // Determine Next User
@@ -371,16 +393,34 @@ export const useStore = create<AppState>((set, get) => ({
       });
       nextUserIndex = (nextUserIndex + 1) % rotation.length;
       nextUser = rotation[nextUserIndex];
-      if (nextUser) sendNotification("Turn Skipped", nextUser.name + ", it is now your turn for " + targetChore.name + "!");
+      try {
+        if (nextUser) sendNotification("Turn Skipped", nextUser.name + ", it is now your turn for " + targetChore.name + "!");
+      } catch (e) {
+        console.warn(e);
+      }
     } else {
-      if (nextUser) sendNotification("Your Turn!", nextUser.name + ", it is your turn for " + targetChore.name + "!");
+      try {
+        if (nextUser) sendNotification("Your Turn!", nextUser.name + ", it is your turn for " + targetChore.name + "!");
+      } catch (e) {
+        console.warn(e);
+      }
     }
 
     if (nextUser) {
+      const nextDueDate = calculateNextDueDate(targetChore, new Date());
       await supabase.from("chores").update({
         current_user_id: nextUser.id,
-        due_date: calculateNextDueDate(targetChore, new Date()),
+        due_date: nextDueDate,
       }).eq("id", targetChore.id);
+
+      // Immediately update chore turn in local Zustand store
+      set(s => ({
+        chores: s.chores.map(c => c.id === choreId ? {
+          ...c,
+          current_user_id: nextUser.id,
+          due_date: nextDueDate,
+        } : c)
+      }));
     }
   },
 
@@ -419,6 +459,13 @@ export const useStore = create<AppState>((set, get) => ({
 
   updateUserRentDueDate: async (id, date) => {
     await supabase.from("users").update({ rent_due_date: date }).eq("id", id);
+  },
+
+  updateUserPoints: async (id, points) => {
+    await supabase.from("users").update({ points }).eq("id", id);
+    set(s => ({
+      users: s.users.map(u => u.id === id ? { ...u, points } : u)
+    }));
   },
 
   addChore: async (payload) => {

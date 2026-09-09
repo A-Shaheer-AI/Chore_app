@@ -12,6 +12,7 @@ export const Dashboard = () => {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const [viewRotationChore, setViewRotationChore] = useState<string | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -23,11 +24,19 @@ export const Dashboard = () => {
   };
 
   const handleDone = async (choreId: string) => {
-    const file = photoFiles[choreId];
-    await markChoreDone(choreId, file ?? undefined);
-    setPhotoFiles(prev => ({ ...prev, [choreId]: null }));
-    if (fileInputRefs.current[choreId]) {
-      fileInputRefs.current[choreId]!.value = '';
+    if (submittingId === choreId) return;
+    setSubmittingId(choreId);
+    try {
+      const file = photoFiles[choreId];
+      await markChoreDone(choreId, file ?? undefined);
+      setPhotoFiles(prev => ({ ...prev, [choreId]: null }));
+      if (fileInputRefs.current[choreId]) {
+        fileInputRefs.current[choreId]!.value = '';
+      }
+    } catch (err) {
+      console.error("Failed marking chore done:", err);
+    } finally {
+      setSubmittingId(null);
     }
   };
 
@@ -126,10 +135,11 @@ export const Dashboard = () => {
                 </button>
                 <button
                   onClick={() => handleDone(chore.id)}
-                  className="flex-1 w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all"
+                  disabled={submittingId === chore.id}
+                  className="flex-1 w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all"
                 >
                   <CheckCircle size={24} />
-                  Mark as Done
+                  {submittingId === chore.id ? 'Updating turn...' : 'Mark as Done'}
                 </button>
               </div>
             </div>
