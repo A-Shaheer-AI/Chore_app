@@ -2,14 +2,13 @@ import type { ReactElement } from 'react';
 import { format } from 'date-fns';
 import { useStore } from '../store';
 import { supabase } from '../supabase';
-import { Heart, CheckCircle, Camera, SkipForward, Megaphone } from 'lucide-react';
+import { Heart, CheckCircle, Camera, SkipForward } from 'lucide-react';
 
 const TYPE_META: Record<string, { icon: ReactElement; label: string; color: string }> = {
   completion: { icon: <CheckCircle size={18} className="text-green-500" />, label: 'Completed chore', color: 'green' },
   photo:      { icon: <Camera size={18} className="text-purple-500" />,     label: 'Photo uploaded', color: 'purple' },
   cheer:      { icon: <Heart size={18} className="text-pink-500" />,        label: 'Cheered',        color: 'pink' },
   skip:       { icon: <SkipForward size={18} className="text-indigo-500" />,label: 'Turn skipped',   color: 'indigo' },
-  announcement:{ icon: <Megaphone size={18} className="text-yellow-500" />, label: 'Announcement',   color: 'yellow' },
 };
 
 export const Receipts = () => {
@@ -22,18 +21,20 @@ export const Receipts = () => {
     await cheerReceipt(receiptId, currentUserId, receiptUserId);
   };
 
+  const choreReceipts = receipts.filter(r => r.type !== ('announcement' as any));
+
   return (
     <div className="max-w-2xl mx-auto w-full p-4 flex flex-col gap-4 pb-20">
       <div className="bg-white p-4 rounded-2xl shadow-xl">
         <h1 className="text-2xl font-bold text-gray-800 mb-1">&#127981; Receipts</h1>
-        <p className="text-gray-500 text-sm mb-4">Activity feed — completions, photos, cheers and skips.</p>
+        <p className="text-gray-500 text-sm mb-4">Chore activity feed — completions, photos, cheers and skips.</p>
 
-        {receipts.length === 0 && (
+        {choreReceipts.length === 0 && (
           <p className="text-center text-gray-400 py-8">No activity yet. Complete a chore to get started!</p>
         )}
 
         <ul className="divide-y divide-gray-100">
-          {receipts.map(r => {
+          {choreReceipts.map(r => {
             const meta = TYPE_META[r.type] ?? TYPE_META.completion;
             const canCheer = currentUserId && r.type !== 'cheer' && r.type !== 'skip' && currentUserId !== r.user_id;
             const alreadyCheered = Boolean(currentUserId && cheers.some(c => c.user_id === currentUserId && c.receipt_id === r.id));

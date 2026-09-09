@@ -42,7 +42,7 @@ export type Receipt = {
   id: string;
   user_id: string;
   chore_id: string | null;
-  type: 'completion' | 'photo' | 'cheer' | 'skip' | 'announcement';
+  type: 'completion' | 'photo' | 'cheer' | 'skip';
   details: Record<string, unknown>;
   created_at: number;
 };
@@ -673,20 +673,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   postAnnouncement: async (authorId, title, message) => {
-    const now = Date.now();
     await supabase.from("announcements").insert({
       author_id: authorId,
       title,
       message,
-      created_at: now,
-    });
-    // Also record in receipts feed so it's transparent in the activity feed
-    await supabase.from("receipts").insert({
-      user_id: authorId,
-      chore_id: null,
-      type: "announcement",
-      details: { message: `📢 ${title}: ${message}` },
-      created_at: now,
+      created_at: Date.now(),
     });
   },
 }));
