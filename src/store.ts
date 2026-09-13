@@ -42,7 +42,7 @@ export type Receipt = {
   id: string;
   user_id: string;
   chore_id: string | null;
-  type: 'completion' | 'photo' | 'cheer' | 'skip';
+  type: 'completion' | 'photo' | 'cheer' | 'skip' | 'loan' | 'penalty';
   details: Record<string, unknown>;
   created_at: number;
 };
@@ -77,6 +77,7 @@ interface AppState {
   setCurrentUser: (id: string) => void;
   setActiveChore: (id: string) => void;
   markChoreDone: (choreId: string, photoFile?: File) => Promise<void>;
+  passChoreTurn: (choreId: string, targetUserId: string) => Promise<void>;
   addUser: (name: string) => Promise<void>;
   removeUser: (id: string) => Promise<void>;
   updateUserAway: (id: string, start: number | null, end: number | null) => Promise<void>;
@@ -291,33 +292,72 @@ export const useStore = create<AppState>((set, get) => ({
       });
     };
     
-    const checkOverdueChores = (choreList: Chore[]) => {
+    const checkOverdueChores = async (choreList: Chore[]) => {
       const now = Date.now();
       const activeUserId = get().currentUserId;
-      if (!activeUserId) return;
 
-      choreList.forEach(chore => {
-        // Only notify the person whose turn is overdue!
-        if (chore.current_user_id !== activeUserId) return;
-
+      for (const chore of choreList) {
         const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
-        
+
         if (hoursOverdue >= 24 && hoursOverdue < 48) {
-          const key = `notified_24h_${chore.id}_${chore.due_date}`;
-          if (!localStorage.getItem(key)) {
-            sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
-            localStorage.setItem(key, "true");
+          if (activeUserId && chore.current_user_id === activeUserId) {
+            const key = `notified_24h_${chore.id}_${chore.due_date}`;
+            if (!localStorage.getItem(key)) {
+              sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
+              localStorage.setItem(key, "true");
+            }
           }
         }
-        
+
         if (hoursOverdue >= 48) {
-          const key = `notified_48h_${chore.id}_${chore.due_date}`;
-          if (!localStorage.getItem(key)) {
-            sendNotification("Chore Penalty (48h+)", `Penalty! "${chore.name}" is over 48 hours late (-4 pts).`);
-            localStorage.setItem(key, "true");
+          const treatKey = `treat_posted_${chore.id}_${chore.due_date}`;
+          const alreadyPosted = get().receipts.some(
+            r => r.type === 'penalty' && r.chore_id === chore.id && (r.details as Record<string, unknown>)?.due_date === chore.due_date
+          ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(treatKey)));
+
+          if (!alreadyPosted) {
+            const overdueUser = get().users.find(u => u.id === chore.current_user_id);
+            const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
+
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(treatKey, "true");
+            }
+
+            await supabase.from("announcements").insert({
+              author_id: chore.current_user_id,
+              title: `🍩 Treat Alert: ${overdueUserName} owes everyone a treat!`,
+              message: `${overdueUserName} is over 48 hours late on "${chore.name}". As per house rules, they now owe everyone in the house a food treat!`,
+              created_at: now,
+            });
+
+            const { data: treatReceipt } = await supabase.from("receipts").insert({
+              user_id: chore.current_user_id,
+              chore_id: chore.id,
+              type: "penalty",
+              details: {
+                chore_name: chore.name,
+                user_name: overdueUserName,
+                due_date: chore.due_date,
+                treat_penalty: true,
+                message: `${overdueUserName} is over 48 hours late on "${chore.name}" and owes everyone a treat!`,
+              },
+              created_at: now,
+            }).select().single();
+
+            if (treatReceipt) {
+              set(s => ({ receipts: [treatReceipt, ...s.receipts] }));
+            }
+          }
+
+          if (activeUserId && chore.current_user_id === activeUserId) {
+            const key = `notified_48h_${chore.id}_${chore.due_date}`;
+            if (!localStorage.getItem(key)) {
+              sendNotification("Chore Penalty (48h+)", `Penalty! "${chore.name}" is over 48 hours late (-4 pts). You owe the house a treat!`);
+              localStorage.setItem(key, "true");
+            }
           }
         }
-      });
+      }
     };
 
     checkRentReminders(users || []);
@@ -351,21 +391,39 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
 
-    const rotation = computeRotation(targetChore, state.users);
-    if (rotation.length === 0) return;
-
     const userForHistory = state.users.find(u => u.id === targetChore.current_user_id);
+    if (!userForHistory) return;
 
-    const hoursOverdue = (now - targetChore.due_date) / (1000 * 60 * 60);
+    // Check if this chore completion is fulfilling a swapped turn (loan)
+    const latestLoan = state.receipts.find(r => r.chore_id === choreId && r.type === 'loan');
+    const latestCompletion = state.receipts.find(r => r.chore_id === choreId && r.type === 'completion');
+
+    const isLoanRecipientCompletion = Boolean(
+      latestLoan &&
+      (!latestCompletion || latestLoan.created_at > latestCompletion.created_at) &&
+      (latestLoan.details as Record<string, unknown>)?.recipient_id === targetChore.current_user_id
+    );
+
     let pointsEarned = 0;
-    if (hoursOverdue < 24) pointsEarned = 10;
-    else if (hoursOverdue < 48) pointsEarned = 5;
-    else pointsEarned = -4;
+    let hoursSinceLoan: number | null = null;
+
+    if (isLoanRecipientCompletion && latestLoan) {
+      hoursSinceLoan = (now - latestLoan.created_at) / (1000 * 60 * 60);
+      if (hoursSinceLoan <= 24) pointsEarned = 13;
+      else if (hoursSinceLoan <= 48) pointsEarned = 10;
+      else if (hoursSinceLoan <= 60) pointsEarned = 7;
+      else pointsEarned = -4;
+    } else {
+      const hoursOverdue = (now - targetChore.due_date) / (1000 * 60 * 60);
+      if (hoursOverdue < 24) pointsEarned = 10;
+      else if (hoursOverdue < 48) pointsEarned = 5;
+      else pointsEarned = -4;
+    }
 
     let photoBonus = 0;
     let storagePath: string | null = null;
 
-    if (photoFile && userForHistory) {
+    if (photoFile) {
       const ext = photoFile.name.split(".").pop() || "jpg";
       const filename = `${choreId}_${now}.${ext}`;
       try {
@@ -378,23 +436,6 @@ export const useStore = create<AppState>((set, get) => ({
         } else {
           storagePath = filename;
           photoBonus = 1;
-          const expiresAt = now + 7 * 24 * 60 * 60 * 1000;
-          const { data: photoReceiptRow } = await supabase.from("receipts").insert({
-            user_id: userForHistory.id,
-            chore_id: choreId,
-            type: "photo",
-            details: { storage_path: storagePath, points_awarded: 1 },
-            created_at: now + 1,
-          }).select().single();
-
-          if (photoReceiptRow) {
-            await supabase.from("chore_photos").insert({
-              receipt_id: photoReceiptRow.id,
-              storage_path: storagePath,
-              uploaded_at: now,
-              expires_at: expiresAt,
-            });
-          }
         }
       } catch (uploadErr) {
         console.error("Photo upload exception:", uploadErr);
@@ -402,39 +443,82 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     const totalPoints = pointsEarned + photoBonus;
+    const newPoints = (userForHistory.points || 0) + totalPoints;
 
-    if (userForHistory) {
-      const newPoints = (userForHistory.points || 0) + totalPoints;
+    await supabase.from("history").insert({
+      chore_name: targetChore.name,
+      user_name: userForHistory.name,
+      completed_at: now,
+      points_awarded: totalPoints,
+    });
 
-      await supabase.from("history").insert({
+    // Single combined receipt (completion + photo + chore name)
+    const { data: completionReceipt } = await supabase.from("receipts").insert({
+      user_id: userForHistory.id,
+      chore_id: choreId,
+      type: "completion",
+      details: {
         chore_name: targetChore.name,
-        user_name: userForHistory.name,
-        completed_at: now,
         points_awarded: totalPoints,
+        base_points: pointsEarned,
+        photo_bonus: photoBonus,
+        storage_path: storagePath,
+        has_photo: Boolean(storagePath),
+        is_loan: isLoanRecipientCompletion,
+        hours_taken: hoursSinceLoan !== null ? Math.round(hoursSinceLoan * 10) / 10 : null,
+      },
+      created_at: now,
+    }).select().single();
+
+    if (storagePath && completionReceipt) {
+      const expiresAt = now + 7 * 24 * 60 * 60 * 1000;
+      await supabase.from("chore_photos").insert({
+        receipt_id: completionReceipt.id,
+        storage_path: storagePath,
+        uploaded_at: now,
+        expires_at: expiresAt,
       });
-
-      await supabase.from("receipts").insert({
-        user_id: userForHistory.id,
-        chore_id: choreId,
-        type: "completion",
-        details: { points_awarded: totalPoints, storage_path: storagePath },
-        created_at: now,
-      });
-
-      await supabase.from("users").update({
-        points: newPoints,
-      }).eq("id", userForHistory.id);
-
-      // Immediately update user points in local Zustand store
-      set(s => ({
-        users: s.users.map(u => u.id === userForHistory.id ? { ...u, points: newPoints } : u)
-      }));
     }
 
-    // Determine Next User
-    const currentIdx = rotation.findIndex(u => u.id === targetChore.current_user_id);
-    let nextUserIndex = currentIdx !== -1 ? (currentIdx + 1) % rotation.length : 0;
-    let nextUser = rotation[nextUserIndex];
+    await supabase.from("users").update({
+      points: newPoints,
+    }).eq("id", userForHistory.id);
+
+    // Determine Next User & Rotation
+    let nextUser: User | null = null;
+    let updatedRotationOrder: string[] | null = targetChore.rotation_order;
+
+    // Check if we are currently in an active swapped rotation from latestLoan
+    const details = latestLoan?.details as Record<string, unknown> | undefined;
+    const swappedRotation = details?.swapped_rotation as string[] | undefined;
+    const originalRotation = details?.original_rotation as string[] | undefined;
+
+    if (latestLoan && swappedRotation && originalRotation && targetChore.rotation_order && JSON.stringify(targetChore.rotation_order) === JSON.stringify(swappedRotation)) {
+      const currIdxInSwapped = swappedRotation.indexOf(targetChore.current_user_id);
+      if (currIdxInSwapped !== -1) {
+        if (currIdxInSwapped < swappedRotation.length - 1) {
+          // Next person in the swapped round
+          const nextId = swappedRotation[currIdxInSwapped + 1];
+          nextUser = state.users.find(u => u.id === nextId) || null;
+          updatedRotationOrder = swappedRotation;
+        } else {
+          // Last person in the swapped round just finished!
+          // Reset rotation back to originalRotation!
+          updatedRotationOrder = originalRotation;
+          const firstId = originalRotation[0];
+          nextUser = state.users.find(u => u.id === firstId) || null;
+        }
+      }
+    }
+
+    if (!nextUser) {
+      const rotation = computeRotation(targetChore, state.users);
+      if (rotation.length > 0) {
+        const currentIdx = rotation.findIndex(u => u.id === targetChore.current_user_id);
+        let nextUserIndex = currentIdx !== -1 ? (currentIdx + 1) % rotation.length : 0;
+        nextUser = rotation[nextUserIndex];
+      }
+    }
 
     if (nextUser && nextUser.skip_next_chore) {
       await supabase.from("users").update({ skip_next_chore: false }).eq("id", nextUser.id);
@@ -442,11 +526,12 @@ export const useStore = create<AppState>((set, get) => ({
         user_id: nextUser.id,
         chore_id: choreId,
         type: "skip",
-        details: { message: nextUser.name + " used their skip-turn token" },
+        details: { message: nextUser.name + " used their skip-turn token", chore_name: targetChore.name },
         created_at: now + 2,
       });
-      nextUserIndex = (nextUserIndex + 1) % rotation.length;
-      nextUser = rotation[nextUserIndex];
+      const rotation = computeRotation({ ...targetChore, rotation_order: updatedRotationOrder }, state.users);
+      const skipIdx = rotation.findIndex(u => u.id === nextUser!.id);
+      nextUser = rotation[(skipIdx + 1) % rotation.length];
       try {
         if (nextUser) sendNotification("Turn Skipped", nextUser.name + ", it is now your turn for " + targetChore.name + "!");
       } catch (e) {
@@ -465,17 +550,117 @@ export const useStore = create<AppState>((set, get) => ({
       await supabase.from("chores").update({
         current_user_id: nextUser.id,
         due_date: nextDueDate,
+        rotation_order: updatedRotationOrder,
       }).eq("id", targetChore.id);
 
-      // Immediately update chore turn in local Zustand store
       set(s => ({
+        users: s.users.map(u => u.id === userForHistory.id ? { ...u, points: newPoints } : u),
         chores: s.chores.map(c => c.id === choreId ? {
           ...c,
           current_user_id: nextUser.id,
           due_date: nextDueDate,
-        } : c)
+          rotation_order: updatedRotationOrder,
+        } : c),
+        receipts: completionReceipt ? [completionReceipt, ...s.receipts] : s.receipts,
+      }));
+    } else {
+      set(s => ({
+        users: s.users.map(u => u.id === userForHistory.id ? { ...u, points: newPoints } : u),
+        receipts: completionReceipt ? [completionReceipt, ...s.receipts] : s.receipts,
       }));
     }
+  },
+
+  passChoreTurn: async (choreId: string, targetUserId: string) => {
+    const state = get();
+    const targetChore = state.chores.find(c => c.id === choreId);
+    if (!targetChore) return;
+
+    const loanerId = targetChore.current_user_id;
+    if (!state.currentUserId || state.currentUserId !== loanerId) {
+      console.warn("Only the assigned person can pass their turn.");
+      return;
+    }
+
+    const loaner = state.users.find(u => u.id === loanerId);
+    if (!loaner) return;
+
+    const targetUser = state.users.find(u => u.id === targetUserId);
+    if (!targetUser || targetUser.id === loanerId) {
+      alert("Please select a valid roommate to swap turns with.");
+      return;
+    }
+
+    const baseRotation = targetChore.rotation_order && targetChore.rotation_order.length > 0
+      ? [...targetChore.rotation_order]
+      : computeRotation(targetChore, state.users).map(u => u.id);
+
+    // Re-align circular rotation order so current turn (loaner) is at index 0
+    const currIdx = baseRotation.indexOf(loanerId);
+    const ordered = currIdx !== -1
+      ? [...baseRotation.slice(currIdx), ...baseRotation.slice(0, currIdx)]
+      : baseRotation;
+
+    const targetIdx = ordered.indexOf(targetUserId);
+    if (targetIdx === -1) {
+      alert("The selected roommate is not part of this chore's rotation.");
+      return;
+    }
+
+    // Swap positions: targetUser takes index 0 (now), loaner takes targetIdx
+    const swappedRotation = [...ordered];
+    swappedRotation[0] = targetUserId;
+    swappedRotation[targetIdx] = loanerId;
+
+    const now = Date.now();
+    // 60 hours = 60 * 3600 * 1000 ms
+    const newDueDate = now + 60 * 3600 * 1000;
+    const newPoints = (loaner.points || 0) - 2;
+
+    await supabase.from("users").update({ points: newPoints }).eq("id", loanerId);
+
+    await supabase.from("chores").update({
+      current_user_id: targetUserId,
+      due_date: newDueDate,
+      rotation_order: swappedRotation,
+    }).eq("id", targetChore.id);
+
+    const { data: loanReceipt } = await supabase.from("receipts").insert({
+      user_id: loanerId,
+      chore_id: targetChore.id,
+      type: "loan",
+      details: {
+        chore_name: targetChore.name,
+        loaner_id: loanerId,
+        loaner_name: loaner.name,
+        recipient_id: targetUserId,
+        recipient_name: targetUser.name,
+        points_deducted: 2,
+        loaned_at: now,
+        original_due_date: targetChore.due_date,
+        new_due_date: newDueDate,
+        original_rotation: ordered,
+        swapped_rotation: swappedRotation,
+        message: `${loaner.name} swapped turn for "${targetChore.name}" with ${targetUser.name} (-2 pts, 60h deadline)`,
+      },
+      created_at: now,
+    }).select().single();
+
+    set(s => ({
+      users: s.users.map(u => u.id === loanerId ? { ...u, points: newPoints } : u),
+      chores: s.chores.map(c => c.id === targetChore.id ? {
+        ...c,
+        current_user_id: targetUserId,
+        due_date: newDueDate,
+        rotation_order: swappedRotation,
+      } : c),
+      receipts: loanReceipt ? [loanReceipt, ...s.receipts] : s.receipts,
+    }));
+
+    sendNotification(
+      "Chore Turn Swapped!",
+      `${targetUser.name}, ${loaner.name} swapped "${targetChore.name}" with you! You have 60h to complete it.`
+    );
   },
 
   addUser: async (name) => {

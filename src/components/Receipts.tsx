@@ -2,17 +2,19 @@ import type { ReactElement } from 'react';
 import { format } from 'date-fns';
 import { useStore } from '../store';
 import { supabase } from '../supabase';
-import { Heart, CheckCircle, Camera, SkipForward } from 'lucide-react';
+import { Heart, CheckCircle, Camera, SkipForward, ArrowLeftRight, AlertTriangle } from 'lucide-react';
 
 const TYPE_META: Record<string, { icon: ReactElement; label: string; color: string }> = {
-  completion: { icon: <CheckCircle size={18} className="text-green-500" />, label: 'Completed chore', color: 'green' },
-  photo:      { icon: <Camera size={18} className="text-purple-500" />,     label: 'Photo uploaded', color: 'purple' },
-  cheer:      { icon: <Heart size={18} className="text-pink-500" />,        label: 'Cheered',        color: 'pink' },
-  skip:       { icon: <SkipForward size={18} className="text-indigo-500" />,label: 'Turn skipped',   color: 'indigo' },
+  completion: { icon: <CheckCircle size={18} className="text-green-500 shrink-0" />, label: 'Completed chore', color: 'green' },
+  photo:      { icon: <Camera size={18} className="text-purple-500 shrink-0" />,     label: 'Photo proof',    color: 'purple' },
+  cheer:      { icon: <Heart size={18} className="text-pink-500 shrink-0" />,        label: 'Cheered',        color: 'pink' },
+  skip:       { icon: <SkipForward size={18} className="text-indigo-500 shrink-0" />,label: 'Turn skipped',   color: 'indigo' },
+  loan:       { icon: <ArrowLeftRight size={18} className="text-amber-500 shrink-0" />, label: 'Turn swapped', color: 'amber' },
+  penalty:    { icon: <AlertTriangle size={18} className="text-red-500 shrink-0" />, label: 'Treat penalty', color: 'red' },
 };
 
 export const Receipts = () => {
-  const { receipts, users, currentUserId, cheers, cheerReceipt } = useStore();
+  const { receipts, users, chores, currentUserId, cheers, cheerReceipt } = useStore();
 
   const getUserName = (id: string) => users.find(u => u.id === id)?.name ?? 'Unknown';
 
@@ -21,13 +23,13 @@ export const Receipts = () => {
     await cheerReceipt(receiptId, currentUserId, receiptUserId);
   };
 
-  const choreReceipts = receipts.filter(r => r.type !== ('announcement' as any));
+  const choreReceipts = receipts.filter(r => r.type !== ('announcement' as unknown));
 
   return (
     <div className="max-w-2xl mx-auto w-full p-4 flex flex-col gap-4 pb-20">
       <div className="bg-white p-4 rounded-2xl shadow-xl">
-        <h1 className="text-2xl font-bold text-gray-800 mb-1">&#127981; Receipts</h1>
-        <p className="text-gray-500 text-sm mb-4">Chore activity feed — completions, photos, cheers and skips.</p>
+        <h1 className="text-2xl font-bold text-gray-800 mb-1">🧾 Receipts</h1>
+        <p className="text-gray-500 text-sm mb-4">Chore activity feed — completions with proof, turn swaps, cheers and penalties.</p>
 
         {choreReceipts.length === 0 && (
           <p className="text-center text-gray-400 py-8">No activity yet. Complete a chore to get started!</p>
@@ -36,38 +38,111 @@ export const Receipts = () => {
         <ul className="divide-y divide-gray-100">
           {choreReceipts.map(r => {
             const meta = TYPE_META[r.type] ?? TYPE_META.completion;
-            const canCheer = currentUserId && r.type !== 'cheer' && r.type !== 'skip' && currentUserId !== r.user_id;
+            const canCheer = currentUserId && (r.type === 'completion' || r.type === 'photo') && currentUserId !== r.user_id;
             const alreadyCheered = Boolean(currentUserId && cheers.some(c => c.user_id === currentUserId && c.receipt_id === r.id));
             const cheerCount = cheers.filter(c => c.receipt_id === r.id).length;
             const details = r.details as Record<string, unknown>;
+
+            const choreName = (typeof details.chore_name === 'string' && details.chore_name)
+              ? details.chore_name
+              : (r.chore_id ? chores.find(c => c.id === r.chore_id)?.name : null);
 
             return (
               <li key={r.id} className="py-4 flex items-start gap-3">
                 <div className="mt-1">{meta.icon}</div>
                 <div className="flex-1 min-w-0">
-                  {r.type === 'cheer' ? (
+
+                  {/* Completion Receipt */}
+                  {r.type === 'completion' && (
+                    <div>
+                      <p className="font-semibold text-gray-800 text-sm leading-snug">
+                        <span className="text-indigo-700 font-bold">{getUserName(r.user_id)}</span>{' '}
+                        completed{' '}
+                        <span className="text-gray-900 font-bold">
+                          {choreName ? `"${choreName}"` : 'a chore'}
+                        </span>
+                        {typeof details.points_awarded === 'number' && details.points_awarded !== 0 && (
+                          <span className={`ml-2 text-xs font-bold ${(details.points_awarded as number) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {(details.points_awarded as number) > 0 ? '+' : ''}{details.points_awarded as number} pts
+                          </span>
+                        )}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {Boolean(details.has_photo) && (
+                          <span className="text-[11px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium border border-purple-200">
+                            📷 Photo Proof (+1 pt)
+                          </span>
+                        )}
+                        {Boolean(details.is_loan) && (
+                          <span className="text-[11px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium border border-amber-200">
+                            🔄 Swapped Turn Completed
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Turn Swap / Loan Receipt */}
+                  {r.type === 'loan' && (
+                    <div>
+                      <p className="font-semibold text-gray-800 text-sm leading-snug">
+                        <span className="text-indigo-700 font-bold">{getUserName(r.user_id)}</span>{' '}
+                        swapped turn for{' '}
+                        <span className="text-gray-900 font-bold">
+                          {choreName ? `"${choreName}"` : 'a chore'}
+                        </span>{' '}
+                        with{' '}
+                        <span className="text-indigo-700 font-bold">
+                          {typeof details.recipient_name === 'string'
+                            ? details.recipient_name
+                            : getUserName(String(details.recipient_id))}
+                        </span>
+                        <span className="ml-2 text-xs font-bold text-red-600">-2 pts</span>
+                      </p>
+                      <p className="text-xs text-amber-700 mt-0.5 font-medium">
+                        ⏱️ 60-hour deadline assigned to take turn
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 48h Overdue Treat Penalty Receipt */}
+                  {r.type === 'penalty' && (
+                    <div className="bg-red-50 p-2.5 rounded-xl border border-red-200 mt-0.5">
+                      <p className="font-bold text-red-800 text-sm flex items-center gap-1.5">
+                        🍩 Treat Alert!
+                      </p>
+                      <p className="text-xs text-red-700 mt-0.5">
+                        <span className="font-bold">{getUserName(r.user_id)}</span> is over 48 hours late on{' '}
+                        <span className="font-bold">"{choreName || 'their chore'}"</span> and owes everyone in the house a food treat!
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Cheer Receipt */}
+                  {r.type === 'cheer' && (
                     <p className="font-semibold text-gray-800 text-sm">
-                      {getUserName(String(details.cheerer_id))}{' '}
+                      <span className="text-indigo-700 font-bold">{getUserName(String(details.cheerer_id))}</span>{' '}
                       <span className="font-normal text-gray-500">cheered</span>{' '}
-                      {getUserName(r.user_id)}
+                      <span className="text-indigo-700 font-bold">{getUserName(r.user_id)}</span>
                       <span className="ml-2 text-xs font-bold text-green-600">+1 pt</span>
                     </p>
-                  ) : (
-                    <p className="font-semibold text-gray-800 text-sm">
-                      {getUserName(r.user_id)}{' '}
-                      <span className="font-normal text-gray-500">{meta.label}</span>
-                      {typeof details.points_awarded === 'number' && details.points_awarded !== 0 && (
-                        <span className={`ml-2 text-xs font-bold ${(details.points_awarded as number) > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {(details.points_awarded as number) > 0 ? '+' : ''}{details.points_awarded as number} pts
-                        </span>
+                  )}
+
+                  {/* Skip Receipt */}
+                  {r.type === 'skip' && (
+                    <div>
+                      <p className="font-semibold text-gray-800 text-sm">
+                        <span className="text-indigo-700 font-bold">{getUserName(r.user_id)}</span>{' '}
+                        <span className="font-normal text-gray-500">skipped turn</span>
+                        {choreName && <span className="font-bold text-gray-800"> for "{choreName}"</span>}
+                      </p>
+                      {typeof details.message === 'string' && details.message && (
+                        <p className="text-xs text-gray-500 mt-0.5">{details.message}</p>
                       )}
-                    </p>
+                    </div>
                   )}
 
-                  {typeof details.message === 'string' && details.message && (
-                    <p className="text-xs text-gray-500 mt-0.5">{details.message}</p>
-                  )}
-
+                  {/* Photo Proof Display */}
                   {(() => {
                     const photoPath = (typeof details.storage_path === 'string' && details.storage_path)
                       ? details.storage_path
@@ -79,11 +154,11 @@ export const Receipts = () => {
                     const publicUrl = supabase.storage.from('chore_photos').getPublicUrl(photoPath).data.publicUrl;
 
                     return (
-                      <div className="mt-2">
+                      <div className="mt-2.5">
                         <img
                           src={publicUrl}
                           alt="Chore proof"
-                          className="rounded-xl max-h-60 max-w-full object-cover border border-gray-200 shadow-sm cursor-pointer hover:opacity-95"
+                          className="rounded-xl max-h-64 max-w-full object-cover border border-gray-200 shadow-sm cursor-pointer hover:opacity-95"
                           onClick={() => window.open(publicUrl, '_blank')}
                           loading="lazy"
                         />
@@ -91,7 +166,7 @@ export const Receipts = () => {
                     );
                   })()}
 
-                  <div className="flex items-center gap-3 mt-1">
+                  <div className="flex items-center gap-3 mt-2">
                     <p className="text-xs text-gray-400">{format(r.created_at, 'MMM do, h:mm a')}</p>
                     {cheerCount > 0 && (
                       <span className="text-xs text-pink-500 font-semibold flex items-center gap-1">

@@ -1,4 +1,4 @@
-import { Info, AlertTriangle, Plane, Crown, Trophy, Bell } from 'lucide-react';
+import { Info, AlertTriangle, Plane, Crown, Trophy, Bell, ArrowLeftRight } from 'lucide-react';
 
 export const Rules = () => {
   return (
@@ -89,12 +89,43 @@ export const Rules = () => {
 
           <section>
             <h2 className="text-xl font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
-              <AlertTriangle className="text-orange-500" /> The 48-Hour Deadline
+              <ArrowLeftRight className="text-indigo-500" /> Turn Swapping &amp; Passing (-2 pts)
+            </h2>
+            <p className="text-gray-600 mb-2">Can't do your chore right now? You can swap your turn with another roommate:</p>
+            <ul className="list-disc pl-5 text-gray-600 space-y-2">
+              <li><strong>Cost:</strong> Passing your turn deducts <strong>2 points</strong> from your score.</li>
+              <li><strong>Choose Roommate:</strong> You select which roommate in the chore's rotation takes your place.</li>
+              <li><strong>60-Hour Window:</strong> The person who receives the turn has <strong>60 hours</strong> to complete it.</li>
+              <li><strong>Recipient Rewards:</strong>
+                <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-lg text-xs">
+                    <span className="font-bold text-emerald-700 block">≤ 24 hours:</span>
+                    <strong className="text-emerald-800 text-sm">+13 points</strong>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 p-2 rounded-lg text-xs">
+                    <span className="font-bold text-blue-700 block">24–48 hours:</span>
+                    <strong className="text-blue-800 text-sm">+10 points</strong>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 p-2 rounded-lg text-xs">
+                    <span className="font-bold text-amber-700 block">48–60 hours:</span>
+                    <strong className="text-amber-800 text-sm">+7 points</strong>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-500 mt-1 block">(&gt;60 hours overdue results in -4 penalty pts).</span>
+              </li>
+              <li><strong>Rotation Swap:</strong> You swap positions in the rotation with that person for this round. When their original turn comes up, <strong>it will be your turn</strong>! Once everyone has completed the round, the rotation automatically resets back to the original order.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
+              <AlertTriangle className="text-orange-500" /> The 48-Hour Deadline &amp; Treat Alert
             </h2>
             <ul className="list-disc pl-5 text-gray-600 space-y-2">
-              <li><strong>0–24 hrs late:</strong> Due date turns orange.</li>
-              <li><strong>24–48 hrs late:</strong> Flashing orange WARNING badge.</li>
-              <li><strong>48+ hrs late:</strong> Flashing red PENALTY MODE — you owe the house food!</li>
+              <li><strong>0–24 hrs late:</strong> Due date turns orange (+10 pts if completed).</li>
+              <li><strong>24–48 hrs late:</strong> Flashing orange WARNING badge (+5 pts if completed).</li>
+              <li><strong>48+ hrs late:</strong> Flashing red PENALTY MODE (-4 pts).</li>
+              <li><strong>🍩 House Treat Alert:</strong> When 48 hours are crossed, the system automatically posts an alert to both <strong>News (Announcements)</strong> and <strong>Receipts</strong>. The person officially <strong>owes everyone in the house a food treat!</strong></li>
             </ul>
           </section>
 
