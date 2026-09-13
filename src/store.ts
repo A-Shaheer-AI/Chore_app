@@ -297,63 +297,131 @@ export const useStore = create<AppState>((set, get) => ({
       const activeUserId = get().currentUserId;
 
       for (const chore of choreList) {
-        const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
+        // Check if this chore is currently in an active swapped/loaned turn
+        const latestLoan = get().receipts.find(r => r.chore_id === chore.id && r.type === 'loan');
+        const latestCompletion = get().receipts.find(r => r.chore_id === chore.id && r.type === 'completion');
+        const isLoan = Boolean(
+          latestLoan &&
+          (!latestCompletion || latestLoan.created_at > latestCompletion.created_at) &&
+          (latestLoan.details as Record<string, unknown>)?.recipient_id === chore.current_user_id
+        );
 
-        if (hoursOverdue >= 24 && hoursOverdue < 48) {
-          if (activeUserId && chore.current_user_id === activeUserId) {
-            const key = `notified_24h_${chore.id}_${chore.due_date}`;
-            if (!localStorage.getItem(key)) {
-              sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
-              localStorage.setItem(key, "true");
+        if (isLoan) {
+          // For a loaned chore, due_date is set to loaned_at + 60h.
+          // When now >= chore.due_date, the 60 hours have passed!
+          const isOver60h = now >= chore.due_date;
+
+          if (isOver60h) {
+            const treatKey = `treat_posted_loan_60h_${chore.id}_${chore.due_date}`;
+            const alreadyPosted = get().receipts.some(
+              r => r.type === 'penalty' && r.chore_id === chore.id && (r.details as Record<string, unknown>)?.due_date === chore.due_date
+            ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(treatKey)));
+
+            if (!alreadyPosted) {
+              const overdueUser = get().users.find(u => u.id === chore.current_user_id);
+              const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
+
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(treatKey, "true");
+              }
+
+              await supabase.from("announcements").insert({
+                author_id: chore.current_user_id,
+                title: `🍩 Treat Alert: ${overdueUserName} owes everyone a treat!`,
+                message: `${overdueUserName} was loaned "${chore.name}" with a 60-hour deadline and did not complete it in time. As per house rules, they lose 4 points and owe everyone in the house a food treat!`,
+                created_at: now,
+              });
+
+              const { data: treatReceipt } = await supabase.from("receipts").insert({
+                user_id: chore.current_user_id,
+                chore_id: chore.id,
+                type: "penalty",
+                details: {
+                  chore_name: chore.name,
+                  user_name: overdueUserName,
+                  due_date: chore.due_date,
+                  treat_penalty: true,
+                  is_loan: true,
+                  points_awarded: -4,
+                  message: `${overdueUserName} exceeded the 60-hour loan deadline on "${chore.name}" (-4 pts) and owes everyone a treat!`,
+                },
+                created_at: now,
+              }).select().single();
+
+              if (treatReceipt) {
+                set(s => ({ receipts: [treatReceipt, ...s.receipts] }));
+              }
+            }
+
+            if (activeUserId && chore.current_user_id === activeUserId) {
+              const key = `notified_loan_60h_${chore.id}_${chore.due_date}`;
+              if (!localStorage.getItem(key)) {
+                sendNotification("Loan Deadline Exceeded (60h+)", `Penalty! "${chore.name}" exceeded the 60-hour deadline (-4 pts). You owe the house a treat!`);
+                localStorage.setItem(key, "true");
+              }
             }
           }
-        }
+        } else {
+          // Standard chore overdue checks
+          const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
 
-        if (hoursOverdue >= 48) {
-          const treatKey = `treat_posted_${chore.id}_${chore.due_date}`;
-          const alreadyPosted = get().receipts.some(
-            r => r.type === 'penalty' && r.chore_id === chore.id && (r.details as Record<string, unknown>)?.due_date === chore.due_date
-          ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(treatKey)));
-
-          if (!alreadyPosted) {
-            const overdueUser = get().users.find(u => u.id === chore.current_user_id);
-            const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
-
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(treatKey, "true");
-            }
-
-            await supabase.from("announcements").insert({
-              author_id: chore.current_user_id,
-              title: `🍩 Treat Alert: ${overdueUserName} owes everyone a treat!`,
-              message: `${overdueUserName} is over 48 hours late on "${chore.name}". As per house rules, they now owe everyone in the house a food treat!`,
-              created_at: now,
-            });
-
-            const { data: treatReceipt } = await supabase.from("receipts").insert({
-              user_id: chore.current_user_id,
-              chore_id: chore.id,
-              type: "penalty",
-              details: {
-                chore_name: chore.name,
-                user_name: overdueUserName,
-                due_date: chore.due_date,
-                treat_penalty: true,
-                message: `${overdueUserName} is over 48 hours late on "${chore.name}" and owes everyone a treat!`,
-              },
-              created_at: now,
-            }).select().single();
-
-            if (treatReceipt) {
-              set(s => ({ receipts: [treatReceipt, ...s.receipts] }));
+          if (hoursOverdue >= 24 && hoursOverdue < 48) {
+            if (activeUserId && chore.current_user_id === activeUserId) {
+              const key = `notified_24h_${chore.id}_${chore.due_date}`;
+              if (!localStorage.getItem(key)) {
+                sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
+                localStorage.setItem(key, "true");
+              }
             }
           }
 
-          if (activeUserId && chore.current_user_id === activeUserId) {
-            const key = `notified_48h_${chore.id}_${chore.due_date}`;
-            if (!localStorage.getItem(key)) {
-              sendNotification("Chore Penalty (48h+)", `Penalty! "${chore.name}" is over 48 hours late (-4 pts). You owe the house a treat!`);
-              localStorage.setItem(key, "true");
+          if (hoursOverdue >= 48) {
+            const treatKey = `treat_posted_${chore.id}_${chore.due_date}`;
+            const alreadyPosted = get().receipts.some(
+              r => r.type === 'penalty' && r.chore_id === chore.id && (r.details as Record<string, unknown>)?.due_date === chore.due_date
+            ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(treatKey)));
+
+            if (!alreadyPosted) {
+              const overdueUser = get().users.find(u => u.id === chore.current_user_id);
+              const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
+
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(treatKey, "true");
+              }
+
+              await supabase.from("announcements").insert({
+                author_id: chore.current_user_id,
+                title: `🍩 Treat Alert: ${overdueUserName} owes everyone a treat!`,
+                message: `${overdueUserName} is over 48 hours late on "${chore.name}". As per house rules, they now owe everyone in the house a food treat!`,
+                created_at: now,
+              });
+
+              const { data: treatReceipt } = await supabase.from("receipts").insert({
+                user_id: chore.current_user_id,
+                chore_id: chore.id,
+                type: "penalty",
+                details: {
+                  chore_name: chore.name,
+                  user_name: overdueUserName,
+                  due_date: chore.due_date,
+                  treat_penalty: true,
+                  points_awarded: -4,
+                  message: `${overdueUserName} is over 48 hours late on "${chore.name}" and owes everyone a treat!`,
+                },
+                created_at: now,
+              }).select().single();
+
+              if (treatReceipt) {
+                set(s => ({ receipts: [treatReceipt, ...s.receipts] }));
+              }
+            }
+
+            if (activeUserId && chore.current_user_id === activeUserId) {
+              const key = `notified_48h_${chore.id}_${chore.due_date}`;
+              if (!localStorage.getItem(key)) {
+                sendNotification("Chore Penalty (48h+)", `Penalty! "${chore.name}" is over 48 hours late (-4 pts). You owe the house a treat!`);
+                localStorage.setItem(key, "true");
+              }
             }
           }
         }

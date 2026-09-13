@@ -110,9 +110,9 @@ export const Dashboard = () => {
               {myChoresDue.map(chore => {
                 const isOverdue = isPast(chore.due_date);
                 const hoursOverdue = (currentTime - chore.due_date) / (1000 * 60 * 60);
-                const isPenalty = hoursOverdue >= 48;
-                const isWarning = hoursOverdue >= 24 && hoursOverdue < 48;
                 const isLoan = isChoreLoaned(chore.id);
+                const isPenalty = isLoan ? isOverdue : hoursOverdue >= 48;
+                const isWarning = isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48);
                 const photoFile = photoFiles[chore.id];
 
                 let badgeColor = "bg-green-100 text-green-700";
@@ -222,9 +222,9 @@ export const Dashboard = () => {
         const hoursOverdue = (currentTime - chore.due_date) / (1000 * 60 * 60);
         const currentUser = users.find(u => u.id === chore.current_user_id);
         const nextUser = getNextUser(chore, users);
-        const isPenalty = hoursOverdue >= 48;
-        const isWarning = hoursOverdue >= 24 && hoursOverdue < 48;
         const isLoan = isChoreLoaned(chore.id);
+        const isPenalty = isLoan ? isOverdue : hoursOverdue >= 48;
+        const isWarning = isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48);
 
         const photoFile = photoFiles[chore.id];
 

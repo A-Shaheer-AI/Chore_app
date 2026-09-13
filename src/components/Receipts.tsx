@@ -78,6 +78,11 @@ export const Receipts = () => {
                             🔄 Swapped Turn Completed
                           </span>
                         )}
+                        {details.points_awarded === -4 && (
+                          <span className="text-[11px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold border border-red-200">
+                            🍩 Late Penalty (-4 pts) — Owes everyone a treat!
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
@@ -105,15 +110,20 @@ export const Receipts = () => {
                     </div>
                   )}
 
-                  {/* 48h Overdue Treat Penalty Receipt */}
+                  {/* 48h / 60h Overdue Treat Penalty Receipt */}
                   {r.type === 'penalty' && (
                     <div className="bg-red-50 p-2.5 rounded-xl border border-red-200 mt-0.5">
-                      <p className="font-bold text-red-800 text-sm flex items-center gap-1.5">
-                        🍩 Treat Alert!
+                      <p className="font-bold text-red-800 text-sm flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">🍩 Treat Alert!</span>
+                        <span className="text-xs font-extrabold text-red-600 bg-red-100 px-2 py-0.5 rounded-full border border-red-300">
+                          -4 pts
+                        </span>
                       </p>
-                      <p className="text-xs text-red-700 mt-0.5">
-                        <span className="font-bold">{getUserName(r.user_id)}</span> is over 48 hours late on{' '}
-                        <span className="font-bold">"{choreName || 'their chore'}"</span> and owes everyone in the house a food treat!
+                      <p className="text-xs text-red-700 mt-1">
+                        <span className="font-bold">{getUserName(r.user_id)}</span>{' '}
+                        {typeof details.message === 'string' && details.message
+                          ? details.message
+                          : `is over 48 hours late on "${choreName || 'their chore'}" and owes everyone in the house a food treat!`}
                       </p>
                     </div>
                   )}
