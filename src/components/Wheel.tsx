@@ -60,52 +60,69 @@ export const Wheel = ({ activeUsers, currentUserId }: WheelProps) => {
         style={{ transformOrigin: "center center" }}
       >
         <svg viewBox="0 0 100 100" className="w-full h-full rounded-full">
-          {activeUsers.map((user, i) => {
-            const startAngle = i * sliceAngle;
-            const endAngle = startAngle + sliceAngle;
-            
-            // Math for drawing SVG pie slice
-            const x1 = 50 + 50 * Math.cos((Math.PI * (startAngle - 90)) / 180);
-            const y1 = 50 + 50 * Math.sin((Math.PI * (startAngle - 90)) / 180);
-            const x2 = 50 + 50 * Math.cos((Math.PI * (endAngle - 90)) / 180);
-            const y2 = 50 + 50 * Math.sin((Math.PI * (endAngle - 90)) / 180);
-            
-            const largeArcFlag = sliceAngle > 180 ? 1 : 0;
-            
-            const d = [
-              "M 50 50",
-              `L ${x1} ${y1}`,
-              `A 50 50 0 ${largeArcFlag} 1 ${x2} ${y2}`,
-              "Z"
-            ].join(" ");
+          {activeUsers.length === 1 ? (
+            <g key={activeUsers[0].id}>
+              <circle cx="50" cy="50" r="49" fill="#60a5fa" stroke="#fff" strokeWidth="1" />
+              <text 
+                x="50" 
+                y="50" 
+                fill="white" 
+                fontSize="8" 
+                fontWeight="bold" 
+                textAnchor="middle" 
+                dominantBaseline="middle"
+              >
+                {activeUsers[0].name}
+              </text>
+            </g>
+          ) : (
+            activeUsers.map((user, i) => {
+              const startAngle = i * sliceAngle;
+              const endAngle = startAngle + sliceAngle;
+              
+              // Math for drawing SVG pie slice
+              const x1 = 50 + 50 * Math.cos((Math.PI * (startAngle - 90)) / 180);
+              const y1 = 50 + 50 * Math.sin((Math.PI * (startAngle - 90)) / 180);
+              const x2 = 50 + 50 * Math.cos((Math.PI * (endAngle - 90)) / 180);
+              const y2 = 50 + 50 * Math.sin((Math.PI * (endAngle - 90)) / 180);
+              
+              const largeArcFlag = sliceAngle > 180 ? 1 : 0;
+              
+              const d = [
+                "M 50 50",
+                `L ${x1} ${y1}`,
+                `A 50 50 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                "Z"
+              ].join(" ");
 
-            // Text positioning
-            const textAngle = startAngle + sliceAngle / 2;
-            const textX = 50 + 30 * Math.cos((Math.PI * (textAngle - 90)) / 180);
-            const textY = 50 + 30 * Math.sin((Math.PI * (textAngle - 90)) / 180);
+              // Text positioning
+              const textAngle = startAngle + sliceAngle / 2;
+              const textX = 50 + 30 * Math.cos((Math.PI * (textAngle - 90)) / 180);
+              const textY = 50 + 30 * Math.sin((Math.PI * (textAngle - 90)) / 180);
 
-            // Colors based on index
-            const colors = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#a78bfa", "#f472b6"];
-            const color = colors[i % colors.length];
+              // Colors based on index
+              const colors = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#a78bfa", "#f472b6"];
+              const color = colors[i % colors.length];
 
-            return (
-              <g key={user.id}>
-                <path d={d} fill={color} stroke="#fff" strokeWidth="0.5" />
-                <text 
-                  x={textX} 
-                  y={textY} 
-                  fill="white" 
-                  fontSize="6" 
-                  fontWeight="bold" 
-                  textAnchor="middle" 
-                  dominantBaseline="middle"
-                  transform={`rotate(${textAngle}, ${textX}, ${textY})`}
-                >
-                  {user.name}
-                </text>
-              </g>
-            );
-          })}
+              return (
+                <g key={user.id}>
+                  <path d={d} fill={color} stroke="#fff" strokeWidth="0.5" />
+                  <text 
+                    x={textX} 
+                    y={textY} 
+                    fill="white" 
+                    fontSize="6" 
+                    fontWeight="bold" 
+                    textAnchor="middle" 
+                    dominantBaseline="middle"
+                    transform={`rotate(${textAngle}, ${textX}, ${textY})`}
+                  >
+                    {user.name}
+                  </text>
+                </g>
+              );
+            })
+          )}
         </svg>
       </motion.div>
     </div>

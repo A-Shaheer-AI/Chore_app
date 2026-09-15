@@ -13,6 +13,7 @@ export const Dashboard = () => {
 
   const [viewRotationChore, setViewRotationChore] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [cooldownIds, setCooldownIds] = useState<Record<string, boolean>>({});
 
   // Turn Swap Modal state
   const [swapModalChoreId, setSwapModalChoreId] = useState<string | null>(null);
@@ -29,7 +30,7 @@ export const Dashboard = () => {
   };
 
   const handleDone = async (choreId: string) => {
-    if (submittingId === choreId) return;
+    if (submittingId === choreId || cooldownIds[choreId]) return;
     setSubmittingId(choreId);
     try {
       const file = photoFiles[choreId];
@@ -38,6 +39,10 @@ export const Dashboard = () => {
       if (fileInputRefs.current[choreId]) {
         fileInputRefs.current[choreId]!.value = '';
       }
+      setCooldownIds(prev => ({ ...prev, [choreId]: true }));
+      setTimeout(() => {
+        setCooldownIds(prev => ({ ...prev, [choreId]: false }));
+      }, 4000);
     } catch (err) {
       console.error("Failed marking chore done:", err);
     } finally {
@@ -183,11 +188,11 @@ export const Dashboard = () => {
                       <button
                         type="button"
                         onClick={() => handleDone(chore.id)}
-                        disabled={submittingId === chore.id}
+                        disabled={submittingId === chore.id || cooldownIds[chore.id]}
                         className="flex-1 flex items-center justify-center gap-1.5 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition-all"
                       >
                         <CheckCircle size={15} />
-                        {submittingId === chore.id ? 'Updating...' : 'Mark as Done'}
+                        {submittingId === chore.id ? 'Updating...' : cooldownIds[chore.id] ? 'Done! ✓' : 'Mark as Done'}
                       </button>
                     </div>
                   </div>
@@ -328,11 +333,11 @@ export const Dashboard = () => {
 
                       <button
                         onClick={() => handleDone(chore.id)}
-                        disabled={submittingId === chore.id}
+                        disabled={submittingId === chore.id || cooldownIds[chore.id]}
                         className="flex-1 w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all"
                       >
                         <CheckCircle size={24} />
-                        {submittingId === chore.id ? 'Updating turn...' : 'Mark as Done'}
+                        {submittingId === chore.id ? 'Updating turn...' : cooldownIds[chore.id] ? 'Done! ✓' : 'Mark as Done'}
                       </button>
                     </div>
                   );

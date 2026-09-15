@@ -282,10 +282,11 @@ export const useStore = create<AppState>((set, get) => ({
         const diff = Math.round((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
         const offset = u.rent_reminder_offset ?? 4;
 
-        if (diff === offset) {
+        if (diff <= offset && diff >= 0) {
           const key = `rent_notified_${u.id}_${u.rent_due_date}`;
           if (!localStorage.getItem(key)) {
-            sendNotification("Rent Reminder", `${u.name}, your rent is due in ${offset} days (${u.rent_due_date}).`);
+            const daysText = diff === 0 ? "today" : `in ${diff} day${diff === 1 ? "" : "s"}`;
+            sendNotification("Rent Reminder", `${u.name}, your rent is due ${daysText} (${u.rent_due_date}).`);
             localStorage.setItem(key, "true");
           }
         }
@@ -323,6 +324,14 @@ export const useStore = create<AppState>((set, get) => ({
 
               if (typeof window !== 'undefined') {
                 localStorage.setItem(treatKey, "true");
+              }
+
+              if (overdueUser) {
+                const newPoints = (overdueUser.points || 0) - 4;
+                await supabase.from("users").update({ points: newPoints }).eq("id", chore.current_user_id);
+                set(s => ({
+                  users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPoints } : u)
+                }));
               }
 
               await supabase.from("announcements").insert({
@@ -389,6 +398,14 @@ export const useStore = create<AppState>((set, get) => ({
                 localStorage.setItem(treatKey, "true");
               }
 
+              if (overdueUser) {
+                const newPoints = (overdueUser.points || 0) - 4;
+                await supabase.from("users").update({ points: newPoints }).eq("id", chore.current_user_id);
+                set(s => ({
+                  users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPoints } : u)
+                }));
+              }
+
               await supabase.from("announcements").insert({
                 author_id: chore.current_user_id,
                 title: `🍩 Treat Alert: ${overdueUserName} owes everyone a treat!`,
@@ -406,7 +423,7 @@ export const useStore = create<AppState>((set, get) => ({
                   due_date: chore.due_date,
                   treat_penalty: true,
                   points_awarded: -4,
-                  message: `${overdueUserName} is over 48 hours late on "${chore.name}" and owes everyone a treat!`,
+                  message: `${overdueUserName} is over 48 hours late on "${chore.name}" (-4 pts) and owes everyone a treat!`,
                 },
                 created_at: now,
               }).select().single();
@@ -459,6 +476,15 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
 
+    // Prevent rapid duplicate completions (cooldown: 30 seconds)
+    const recentCompletion = state.receipts.find(
+      r => r.chore_id === choreId && r.type === 'completion' && (now - r.created_at) < 30000
+    );
+    if (recentCompletion) {
+      console.warn("Chore was already marked done moments ago. Ignoring duplicate submission.");
+      return;
+    }
+
     const userForHistory = state.users.find(u => u.id === targetChore.current_user_id);
     if (!userForHistory) return;
 
@@ -472,6 +498,11 @@ export const useStore = create<AppState>((set, get) => ({
       (latestLoan.details as Record<string, unknown>)?.recipient_id === targetChore.current_user_id
     );
 
+    // Check if overdue penalty was already deducted for this overdue cycle
+    const alreadyPenalized = state.receipts.some(
+      r => r.type === 'penalty' && r.chore_id === choreId && (r.details as Record<string, unknown>)?.due_date === targetChore.due_date
+    );
+
     let pointsEarned = 0;
     let hoursSinceLoan: number | null = null;
 
@@ -480,12 +511,12 @@ export const useStore = create<AppState>((set, get) => ({
       if (hoursSinceLoan <= 24) pointsEarned = 13;
       else if (hoursSinceLoan <= 48) pointsEarned = 10;
       else if (hoursSinceLoan <= 60) pointsEarned = 7;
-      else pointsEarned = -4;
+      else pointsEarned = alreadyPenalized ? 0 : -4;
     } else {
       const hoursOverdue = (now - targetChore.due_date) / (1000 * 60 * 60);
       if (hoursOverdue < 24) pointsEarned = 10;
       else if (hoursOverdue < 48) pointsEarned = 5;
-      else pointsEarned = -4;
+      else pointsEarned = alreadyPenalized ? 0 : -4;
     }
 
     let photoBonus = 0;
@@ -796,17 +827,101 @@ export const useStore = create<AppState>((set, get) => ({
     const state = get();
     await supabase.from("users").update({ away_start: start, away_end: end }).eq("id", id);
     
-    // Automatically reassign chores if the current person just went away
+    const user = state.users.find(u => u.id === id);
+    const userName = user ? user.name : "Roommate";
     const updatedUsers = state.users.map(u => u.id === id ? { ...u, away_start: start, away_end: end } : u);
-    
-    for (const chore of state.chores) {
-      if (chore.current_user_id === id) {
-         const rotation = computeRotation(chore, updatedUsers);
-         if (rotation.length > 0) {
-           await supabase.from("chores").update({ current_user_id: rotation[0].id }).eq("id", chore.id);
-         }
+    const now = Date.now();
+
+    const isGoingAway = Boolean(start && end && isWithinInterval(now, { start: Math.min(start, end), end: Math.max(start, end) }));
+    const isReturning = !start || !end;
+
+    if (isGoingAway) {
+      // Reassign chores currently on this user
+      for (const chore of state.chores) {
+        if (chore.current_user_id === id) {
+          const nextUser = getNextUser(chore, updatedUsers);
+          if (nextUser && nextUser.id !== id) {
+            await supabase.from("chores").update({ current_user_id: nextUser.id }).eq("id", chore.id);
+
+            const awayMsg = `${userName} is away; turn for "${chore.name}" passed to ${nextUser.name}`;
+            await supabase.from("receipts").insert({
+              user_id: id,
+              chore_id: chore.id,
+              type: "skip",
+              details: {
+                message: awayMsg,
+                chore_name: chore.name,
+                original_user_id: id,
+                reassigned_to_id: nextUser.id,
+                away_reassignment: true,
+              },
+              created_at: now,
+            });
+
+            await supabase.from("announcements").insert({
+              author_id: id,
+              title: `🏖️ Turn Passed: ${userName} is away`,
+              message: `${userName} is away, so their turn for "${chore.name}" has passed to ${nextUser.name}.`,
+              created_at: now,
+            });
+
+            set(s => ({
+              chores: s.chores.map(c => c.id === chore.id ? { ...c, current_user_id: nextUser.id } : c),
+            }));
+          }
+        }
+      }
+    } else if (isReturning) {
+      // User is active again: check if any chore was reassigned due to away AND not yet completed
+      for (const chore of state.chores) {
+        const latestAwayReceipt = state.receipts.find(
+          r => r.chore_id === chore.id &&
+               r.type === 'skip' &&
+               (r.details as Record<string, unknown>)?.away_reassignment === true &&
+               (r.details as Record<string, unknown>)?.original_user_id === id
+        );
+
+        if (latestAwayReceipt) {
+          const completionSince = state.receipts.find(
+            r => r.chore_id === chore.id &&
+                 r.type === 'completion' &&
+                 r.created_at > latestAwayReceipt.created_at
+          );
+
+          if (!completionSince && chore.current_user_id !== id) {
+            await supabase.from("chores").update({ current_user_id: id }).eq("id", chore.id);
+
+            const restoreMsg = `${userName} returned from away; turn for "${chore.name}" restored`;
+            await supabase.from("receipts").insert({
+              user_id: id,
+              chore_id: chore.id,
+              type: "skip",
+              details: {
+                message: restoreMsg,
+                chore_name: chore.name,
+                turn_restored: true,
+              },
+              created_at: now,
+            });
+
+            await supabase.from("announcements").insert({
+              author_id: id,
+              title: `👋 Welcome Back: ${userName}`,
+              message: `${userName} is back! Their turn for "${chore.name}" has been restored.`,
+              created_at: now,
+            });
+
+            set(s => ({
+              chores: s.chores.map(c => c.id === chore.id ? { ...c, current_user_id: id } : c),
+            }));
+          }
+        }
       }
     }
+
+    set(s => ({
+      users: s.users.map(u => u.id === id ? { ...u, away_start: start, away_end: end } : u),
+    }));
   },
 
   updateUserRentDueDate: async (id, date) => {
@@ -818,18 +933,23 @@ export const useStore = create<AppState>((set, get) => ({
 
   addChore: async (payload) => {
     const state = get();
-    const activeUsers = state.users.filter(u => {
-      if (!u.away_start || !u.away_end) return true;
-      return !isWithinInterval(Date.now(), { start: u.away_start, end: u.away_end });
-    });
-    
-    const eligibleActive = payload.assigned_user_ids && payload.assigned_user_ids.length > 0
-      ? activeUsers.filter(u => payload.assigned_user_ids!.includes(u.id))
-      : activeUsers;
+    const eligibleUsers = payload.assigned_user_ids && payload.assigned_user_ids.length > 0
+      ? state.users.filter(u => payload.assigned_user_ids!.includes(u.id))
+      : state.users;
       
-    // Randomize rotation for this specific chore!
-    const rotation_order = shuffleArray(eligibleActive.map(u => u.id));
-    const assignedUser = rotation_order.length > 0 ? rotation_order[0] : state.users[0]?.id;
+    if (eligibleUsers.length === 0) return;
+
+    // Randomize initial rotation including all assigned users
+    const rotation_order = shuffleArray(eligibleUsers.map(u => u.id));
+    
+    // Pick first active user for initial assignment, fallback to rotation_order[0]
+    const now = Date.now();
+    const activeRotation = rotation_order.filter(id => {
+      const u = state.users.find(x => x.id === id);
+      if (!u || !u.away_start || !u.away_end) return true;
+      return !isWithinInterval(now, { start: Math.min(u.away_start, u.away_end), end: Math.max(u.away_start, u.away_end) });
+    });
+    const assignedUser = activeRotation.length > 0 ? activeRotation[0] : rotation_order[0];
     
     if (!assignedUser) return;
     const initialDueDate = calculateNextDueDate(payload, new Date());
@@ -851,22 +971,43 @@ export const useStore = create<AppState>((set, get) => ({
 
   updateChoreAssignment: async (choreId, userIds) => {
     const state = get();
+    const targetChore = state.chores.find(c => c.id === choreId);
+    if (!targetChore) return;
+
     const eligibleUsers = userIds && userIds.length > 0
       ? state.users.filter(u => userIds.includes(u.id))
       : state.users;
       
-    const rotation_order = shuffleArray(eligibleUsers.map(u => u.id));
+    const eligibleIds = eligibleUsers.map(u => u.id);
+
+    // Preserve existing rotation order for users still assigned
+    const existingOrder = targetChore.rotation_order || [];
+    const preservedRotation: string[] = existingOrder.filter(id => eligibleIds.includes(id));
+    // Append newly assigned users at the end
+    eligibleIds.forEach(id => {
+      if (!preservedRotation.includes(id)) {
+        preservedRotation.push(id);
+      }
+    });
+
+    // If current assignee is no longer part of this chore, reassign to first person in rotation
+    let newCurrentUserId = targetChore.current_user_id;
+    if (!eligibleIds.includes(newCurrentUserId)) {
+      newCurrentUserId = preservedRotation.length > 0 ? preservedRotation[0] : (state.users[0]?.id || "");
+    }
     
     await supabase.from("chores").update({
       assigned_user_ids: userIds && userIds.length > 0 ? userIds : null,
-      rotation_order,
+      rotation_order: preservedRotation,
+      current_user_id: newCurrentUserId,
     }).eq("id", choreId);
 
     set(s => ({
       chores: s.chores.map(c => c.id === choreId ? {
         ...c,
         assigned_user_ids: userIds && userIds.length > 0 ? userIds : null,
-        rotation_order,
+        rotation_order: preservedRotation,
+        current_user_id: newCurrentUserId,
       } : c)
     }));
   },
