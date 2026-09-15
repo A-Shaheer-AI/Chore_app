@@ -774,61 +774,26 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-  removeUser: async (id) => {
-    const state = get();
-    const otherUsers = state.users.filter(u => u.id !== id);
-
-    // 1. Reassign any chores currently assigned to this user to avoid FK error
-    for (const chore of state.chores) {
-      if (chore.current_user_id === id) {
-        const rotation = computeRotation(chore, otherUsers);
-        const newAssignee = rotation.length > 0 ? rotation[0].id : (otherUsers[0]?.id || null);
-        if (newAssignee) {
-          await supabase.from("chores").update({ current_user_id: newAssignee }).eq("id", chore.id);
-        }
-      }
-
-      // Also clean up assigned_user_ids and rotation_order
-      const hasAssigned = chore.assigned_user_ids?.includes(id);
-      const hasRotation = chore.rotation_order?.includes(id);
-      if (hasAssigned || hasRotation) {
-        const newAssigned = chore.assigned_user_ids ? chore.assigned_user_ids.filter(uid => uid !== id) : null;
-        const newRotation = chore.rotation_order ? chore.rotation_order.filter(uid => uid !== id) : null;
-        await supabase.from("chores").update({
-          assigned_user_ids: newAssigned && newAssigned.length > 0 ? newAssigned : null,
-          rotation_order: newRotation,
-        }).eq("id", chore.id);
-      }
-    }
-
-    // 2. Delete user from Supabase
-    await supabase.from("users").delete().eq("id", id);
-
-    // 3. Clear local storage if current user was removed
-    if (state.currentUserId === id && typeof window !== 'undefined') {
-      localStorage.removeItem('chore_current_user_id');
-    }
-
-    // 4. Update local state immediately
-    set(s => ({
-      users: s.users.filter(u => u.id !== id),
-      currentUserId: s.currentUserId === id ? null : s.currentUserId,
-      chores: s.chores.map(c => {
-        if (c.current_user_id === id) {
-          const newAssignee = otherUsers[0]?.id || c.current_user_id;
-          return { ...c, current_user_id: newAssignee };
-        }
-        return c;
-      }),
-    }));
+  removeUser: async (_id) => {
+    console.warn("User deletion is disabled by house rules.");
+    alert("Deleting roommates is disabled by house rules.");
   },
 
   updateUserAway: async (id, start, end) => {
     const state = get();
+
+    // Only allow the person who is selected in "🏠 I am" to toggle their away status
+    if (!state.currentUserId || state.currentUserId !== id) {
+      alert("You can only change your own away status. Please select your name in '🏠 I am' at the top.");
+      return;
+    }
+
+    const user = state.users.find(u => u.id === id);
+    const previousAwayStart = user?.away_start ?? null;
+    const userName = user ? user.name : "Roommate";
+
     await supabase.from("users").update({ away_start: start, away_end: end }).eq("id", id);
     
-    const user = state.users.find(u => u.id === id);
-    const userName = user ? user.name : "Roommate";
     const updatedUsers = state.users.map(u => u.id === id ? { ...u, away_start: start, away_end: end } : u);
     const now = Date.now();
 
@@ -872,8 +837,70 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
     } else if (isReturning) {
-      // User is active again: check if any chore was reassigned due to away AND not yet completed
+      // User is active again: check for chores to restore
       for (const chore of state.chores) {
+        const moreThanOneDayLeft = (chore.due_date - now) > 24 * 60 * 60 * 1000;
+
+        // 1. Two-person chore rule:
+        // If there are exactly two people assigned/in rotation, one was away, the other person did it once already,
+        // and now the away person comes back with > 1 day before due date, restore the turn to the person who came back.
+        const eligibleUserIds = chore.assigned_user_ids && chore.assigned_user_ids.length > 0
+          ? chore.assigned_user_ids
+          : (chore.rotation_order && chore.rotation_order.length > 0 ? chore.rotation_order : state.users.map(u => u.id));
+
+        const isTwoPersonChore = eligibleUserIds.length === 2 && eligibleUserIds.includes(id);
+
+        if (isTwoPersonChore && moreThanOneDayLeft) {
+          const otherUserId = eligibleUserIds.find(uid => uid !== id);
+          const otherUser = state.users.find(u => u.id === otherUserId);
+          const otherUserName = otherUser ? otherUser.name : "Roommate";
+
+          if (chore.current_user_id === otherUserId) {
+            // Check if other person completed the chore at least once
+            const otherDidChore = state.receipts.some(
+              r => r.chore_id === chore.id &&
+                   r.type === 'completion' &&
+                   r.user_id === otherUserId &&
+                   (!previousAwayStart || r.created_at >= previousAwayStart - 1000)
+            ) || state.history.some(
+              h => h.chore_name === chore.name &&
+                   h.user_name === otherUserName &&
+                   (!previousAwayStart || h.completed_at >= previousAwayStart - 1000)
+            );
+
+            if (otherDidChore) {
+              await supabase.from("chores").update({ current_user_id: id }).eq("id", chore.id);
+
+              const restoreMsg = `${userName} returned from away; turn for "${chore.name}" restored to ${userName} (2-person chore, >1 day remaining)`;
+              await supabase.from("receipts").insert({
+                user_id: id,
+                chore_id: chore.id,
+                type: "skip",
+                details: {
+                  message: restoreMsg,
+                  chore_name: chore.name,
+                  turn_restored: true,
+                  two_person_rule: true,
+                },
+                created_at: now,
+              });
+
+              await supabase.from("announcements").insert({
+                author_id: id,
+                title: `🔄 Turn Restored: ${userName}`,
+                message: `${userName} returned from away! Since ${otherUserName} already did "${chore.name}" once and more than 1 day remains before the due date, the turn has been restored to ${userName}.`,
+                created_at: now,
+              });
+
+              set(s => ({
+                chores: s.chores.map(c => c.id === chore.id ? { ...c, current_user_id: id } : c),
+              }));
+              continue;
+            }
+          }
+        }
+
+        // 2. General uncompleted away reassignment with > 1 day left
         const latestAwayReceipt = state.receipts.find(
           r => r.chore_id === chore.id &&
                r.type === 'skip' &&
@@ -881,7 +908,7 @@ export const useStore = create<AppState>((set, get) => ({
                (r.details as Record<string, unknown>)?.original_user_id === id
         );
 
-        if (latestAwayReceipt) {
+        if (latestAwayReceipt && moreThanOneDayLeft) {
           const completionSince = state.receipts.find(
             r => r.chore_id === chore.id &&
                  r.type === 'completion' &&
@@ -891,7 +918,7 @@ export const useStore = create<AppState>((set, get) => ({
           if (!completionSince && chore.current_user_id !== id) {
             await supabase.from("chores").update({ current_user_id: id }).eq("id", chore.id);
 
-            const restoreMsg = `${userName} returned from away; turn for "${chore.name}" restored`;
+            const restoreMsg = `${userName} returned from away; turn for "${chore.name}" restored (>1 day remaining)`;
             await supabase.from("receipts").insert({
               user_id: id,
               chore_id: chore.id,

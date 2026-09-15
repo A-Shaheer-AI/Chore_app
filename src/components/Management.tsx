@@ -5,7 +5,7 @@ import { format, addDays } from 'date-fns';
 import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users } from 'lucide-react';
 
 export const Management = () => {
-  const { users, chores, addUser, removeUser, updateUserAway, updateUserRentDueDate, redeemSkipTurn, addChore, removeChore, updateChoreAssignment, currentUserId } = useStore();
+  const { users, chores, addUser, updateUserAway, updateUserRentDueDate, redeemSkipTurn, addChore, removeChore, updateChoreAssignment, currentUserId } = useStore();
   
   const [newUserName, setNewUserName] = useState('');
   
@@ -124,28 +124,24 @@ export const Management = () => {
                   </div>
                 </div>
                 <div className="flex gap-2 items-center">
-                  <button
-                    onClick={() => {
-                      if (user.away_start) {
-                        updateUserAway(user.id, null, null);
-                      } else {
-                        updateUserAway(user.id, Date.now(), addDays(new Date(), 3).getTime());
-                      }
-                    }}
-                    className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-700"
-                  >
-                    Toggle Away
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (window.confirm(`Are you sure you want to remove ${user.name}? Their chores will be reassigned.`)) {
-                        removeUser(user.id);
-                      }
-                    }}
-                    className="text-red-500 hover:text-red-700 p-1"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  {currentUserId === user.id ? (
+                    <button
+                      onClick={() => {
+                        if (user.away_start) {
+                          updateUserAway(user.id, null, null);
+                        } else {
+                          updateUserAway(user.id, Date.now(), addDays(new Date(), 3).getTime());
+                        }
+                      }}
+                      className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold px-3 py-1 rounded transition-colors"
+                    >
+                      {user.away_start ? "Mark Active" : "Toggle Away"}
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-gray-400 italic">
+                      {user.away_start ? "Away" : "Active"}
+                    </span>
+                  )}
                 </div>
               </div>
 
