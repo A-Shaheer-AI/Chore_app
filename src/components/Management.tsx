@@ -1,13 +1,89 @@
 import { useState } from 'react';
-import { useStore } from '../store';
+import { useStore, getDefaultInspectionOffset } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
 import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users } from 'lucide-react';
 
 export const Management = () => {
-  const { users, chores, addUser, updateUserAway, updateUserRentDueDate, redeemSkipTurn, addChore, removeChore, updateChoreAssignment, currentUserId } = useStore();
+  const { 
+    users, 
+    chores, 
+    addUser, 
+    updateUserAway, 
+    updateUserRentDueDate, 
+    redeemSkipTurn, 
+    addChore, 
+    removeChore, 
+    updateChoreAssignment, 
+    currentUserId,
+    inspectionDate,
+    scheduleInspection,
+    clearInspection,
+  } = useStore();
   
   const [newUserName, setNewUserName] = useState('');
+  
+  // Inspection State
+  const [inspectionInputDate, setInspectionInputDate] = useState<string>(
+    inspectionDate ? format(inspectionDate, 'yyyy-MM-dd') : ''
+  );
+  const [customOffsets, setCustomOffsets] = useState<Record<string, 1 | 2 | 0>>({});
+  const [isSchedulingInspection, setIsSchedulingInspection] = useState(false);
+  const [inspectionFeedback, setInspectionFeedback] = useState<string | null>(null);
+
+  const getChoreOffset = (chore: { id: string; name: string }): 1 | 2 | 0 => {
+    if (customOffsets[chore.id] !== undefined) {
+      return customOffsets[chore.id];
+    }
+    return getDefaultInspectionOffset(chore.name);
+  };
+
+  const handleSetOffset = (choreId: string, offset: 1 | 2 | 0) => {
+    setCustomOffsets(prev => ({ ...prev, [choreId]: offset }));
+  };
+
+  const calculateProjectedDate = (chore: { due_date: number; time_of_day: string }, offset: 1 | 2 | 0) => {
+    if (offset === 0 || !inspectionInputDate) return chore.due_date;
+    const [year, month, day] = inspectionInputDate.split('-').map(Number);
+    if (!year || !month || !day) return chore.due_date;
+    const targetDate = new Date(year, month - 1, day - offset, 12, 0, 0);
+    const [hours, minutes] = (chore.time_of_day || '09:00').split(':').map(Number);
+    targetDate.setHours(hours || 0, minutes || 0, 0, 0);
+    return targetDate.getTime();
+  };
+
+  const handleApplyInspection = async () => {
+    if (!inspectionInputDate) {
+      alert("Please select an inspection date first.");
+      return;
+    }
+    setIsSchedulingInspection(true);
+    try {
+      await scheduleInspection(inspectionInputDate, customOffsets);
+      setInspectionFeedback("Inspection schedule applied! All chore due dates have been aligned.");
+      setTimeout(() => setInspectionFeedback(null), 5000);
+    } catch (err) {
+      console.error("Failed to schedule inspection:", err);
+      alert("Failed to schedule inspection. Please check console.");
+    } finally {
+      setIsSchedulingInspection(false);
+    }
+  };
+
+  const handleClearInspection = async () => {
+    const restore = window.confirm("Do you want to restore the chores' original deadlines before the inspection was scheduled?\n\nClick 'OK' to restore previous deadlines, or 'Cancel' to keep current dates.");
+    setIsSchedulingInspection(true);
+    try {
+      await clearInspection(restore);
+      setInspectionInputDate('');
+      setInspectionFeedback("Inspection schedule cleared.");
+      setTimeout(() => setInspectionFeedback(null), 4000);
+    } catch (err) {
+      console.error("Failed to clear inspection:", err);
+    } finally {
+      setIsSchedulingInspection(false);
+    }
+  };
   
   // Chore Form State
   const [choreName, setChoreName] = useState('');
@@ -71,6 +147,179 @@ export const Management = () => {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* House Inspection Alignment Section */}
+      <section className="bg-white rounded-xl shadow-md p-6 border-2 border-amber-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3 mb-4">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl">🔍</span>
+            <div>
+              <h2 className="text-xl font-bold text-gray-800">House Inspection Alignment</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Delay and align chore deadlines to 1 or 2 days before inspection day so the house is thoroughly cleaned without doing chores too far in advance.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Active Inspection Banner / Status */}
+        {inspectionDate ? (
+          <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase tracking-wider font-extrabold bg-amber-200 text-amber-900 px-2.5 py-0.5 rounded-full">
+                  Active Inspection Scheduled
+                </span>
+                <span className="text-xs font-bold text-amber-800">
+                  {format(inspectionDate, 'EEEE, MMMM d, yyyy')}
+                </span>
+              </div>
+              <p className="text-xs text-amber-700 mt-1">
+                Chores have been synchronized for this inspection. You can adjust individual chores below or clear the inspection schedule.
+              </p>
+            </div>
+            <button
+              onClick={handleClearInspection}
+              disabled={isSchedulingInspection}
+              className="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 px-3 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+            >
+              ❌ Clear Inspection Schedule
+            </button>
+          </div>
+        ) : null}
+
+        {/* Date Selector */}
+        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <label className="text-sm font-bold text-gray-700 whitespace-nowrap flex items-center gap-1.5">
+              <Calendar size={16} className="text-amber-600" />
+              Inspection Date:
+            </label>
+            <input
+              type="date"
+              value={inspectionInputDate}
+              onChange={e => {
+                setInspectionInputDate(e.target.value);
+                setInspectionFeedback(null);
+              }}
+              min={format(new Date(), 'yyyy-MM-dd')}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+            {inspectionInputDate && (
+              <span className="text-xs text-gray-500 font-medium">
+                Day -2: <span className="font-bold text-indigo-700">{format(addDays(new Date(inspectionInputDate + 'T12:00:00'), -2), 'EEE, MMM d')}</span> &nbsp;|&nbsp; 
+                Day -1: <span className="font-bold text-indigo-700">{format(addDays(new Date(inspectionInputDate + 'T12:00:00'), -1), 'EEE, MMM d')}</span>
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            💡 <strong>House Inspection Rule:</strong> Vacuuming & deep cleaning are set 2 days before; mopping (1 day after vacuuming), kitchen counters, dishes & bins are set 1 day before.
+          </p>
+        </div>
+
+        {/* Feedback Alert */}
+        {inspectionFeedback && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-300 text-green-800 text-xs font-bold rounded-lg flex items-center gap-2">
+            <span>✅</span>
+            <span>{inspectionFeedback}</span>
+          </div>
+        )}
+
+        {/* Chore Preview & Customization Table */}
+        {inspectionInputDate ? (
+          <div className="flex flex-col gap-3">
+            <h3 className="text-sm font-bold text-gray-700 flex items-center justify-between">
+              <span>Chore Schedule Preview & Customization</span>
+              <span className="text-xs font-normal text-gray-500">{chores.length} chores</span>
+            </h3>
+
+            <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+              {chores.map(chore => {
+                const offset = getChoreOffset(chore);
+                const projectedDue = calculateProjectedDate(chore, offset);
+                const assignee = users.find(u => u.id === chore.current_user_id)?.name || 'Unknown';
+
+                return (
+                  <div key={chore.id} className="p-3 sm:p-4 hover:bg-gray-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-gray-800 break-words">{chore.name}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                          👤 {assignee}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-gray-500">
+                        <span>Current: <span className="font-semibold text-gray-700">{format(chore.due_date, 'EEE, MMM d, HH:mm')}</span></span>
+                        <span>➔</span>
+                        <span>
+                          Target: <span className={`font-bold ${offset === 0 ? 'text-gray-600' : 'text-amber-700'}`}>
+                            {offset === 0 ? 'Keep current' : format(projectedDue, 'EEE, MMM d, HH:mm')}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Timing Selector Buttons */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleSetOffset(chore.id, 2)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          offset === 2
+                            ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-300'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        2 Days Before
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetOffset(chore.id, 1)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          offset === 1
+                            ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-300'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        1 Day Before
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetOffset(chore.id, 0)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          offset === 0
+                            ? 'bg-gray-700 text-white shadow-sm'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}
+                      >
+                        Don't Shift
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <p className="text-xs text-gray-500">
+                Aligning will update chore due dates in real-time, post an announcement, and log a transparent receipt.
+              </p>
+              <button
+                type="button"
+                onClick={handleApplyInspection}
+                disabled={isSchedulingInspection}
+                className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                📅 {isSchedulingInspection ? 'Aligning Chores...' : 'Align All Chores for Inspection'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 italic text-center py-3">
+            Select an inspection date above to preview and customize chore schedule alignment.
+          </p>
+        )}
       </section>
 
       {/* People Section */}

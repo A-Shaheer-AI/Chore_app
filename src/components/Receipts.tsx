@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import { format } from 'date-fns';
 import { useStore } from '../store';
 import { supabase } from '../supabase';
-import { Heart, CheckCircle, Camera, SkipForward, ArrowLeftRight, AlertTriangle } from 'lucide-react';
+import { Heart, CheckCircle, Camera, SkipForward, ArrowLeftRight, AlertTriangle, Calendar } from 'lucide-react';
 
 const TYPE_META: Record<string, { icon: ReactElement; label: string; color: string }> = {
   completion: { icon: <CheckCircle size={18} className="text-green-500 shrink-0" />, label: 'Completed chore', color: 'green' },
@@ -11,6 +11,7 @@ const TYPE_META: Record<string, { icon: ReactElement; label: string; color: stri
   skip:       { icon: <SkipForward size={18} className="text-indigo-500 shrink-0" />,label: 'Turn skipped',   color: 'indigo' },
   loan:       { icon: <ArrowLeftRight size={18} className="text-amber-500 shrink-0" />, label: 'Turn swapped', color: 'amber' },
   penalty:    { icon: <AlertTriangle size={18} className="text-red-500 shrink-0" />, label: 'Treat penalty', color: 'red' },
+  inspection: { icon: <Calendar size={18} className="text-amber-600 shrink-0" />, label: 'Inspection alignment', color: 'amber' },
 };
 
 export const Receipts = () => {
@@ -152,6 +153,36 @@ export const Receipts = () => {
                       </p>
                       {typeof details.message === 'string' && details.message && (
                         <p className="text-xs text-gray-500 mt-0.5">{details.message}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Inspection Receipt */}
+                  {r.type === 'inspection' && (
+                    <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 mt-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-amber-900 text-sm">
+                          {details.action === 'clear' ? 'House Inspection Cleared' : 'House Inspection Alignment'}
+                        </span>
+                      </div>
+                      {details.action === 'schedule' && (
+                        <div className="mt-1 text-xs text-amber-900 space-y-1">
+                          <p>
+                            <span className="font-bold">{String(details.author_name || getUserName(r.user_id))}</span> scheduled an inspection for{' '}
+                            <span className="font-extrabold underline">{String(details.inspection_date)}</span>.
+                          </p>
+                          {Array.isArray(details.shifts) && (
+                            <p className="text-amber-700">
+                              {details.shifts.length} chores aligned to 1–2 days prior to inspection day.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {details.action === 'clear' && (
+                        <p className="mt-1 text-xs text-amber-700">
+                          Cleared by <span className="font-semibold">{String(details.cleared_by || getUserName(r.user_id))}</span>
+                          {details.restored_previous_dates ? ' (original deadlines restored)' : ''}.
+                        </p>
                       )}
                     </div>
                   )}

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { addDays, isWithinInterval, nextDay } from 'date-fns';
+import { addDays, isWithinInterval, nextDay, format } from 'date-fns';
 import type { Day } from 'date-fns';
 import { supabase } from './supabase';
 
@@ -42,7 +42,7 @@ export type Receipt = {
   id: string;
   user_id: string;
   chore_id: string | null;
-  type: 'completion' | 'photo' | 'cheer' | 'skip' | 'loan' | 'penalty';
+  type: 'completion' | 'photo' | 'cheer' | 'skip' | 'loan' | 'penalty' | 'inspection';
   details: Record<string, unknown>;
   created_at: number;
 };
@@ -72,6 +72,7 @@ interface AppState {
   activeChoreId: string | null;
   isLoaded: boolean;
   currentUserId: string | null;
+  inspectionDate: number | null;
 
   init: () => Promise<void>;
   setCurrentUser: (id: string) => void;
@@ -88,6 +89,8 @@ interface AppState {
   redeemSkipTurn: (userId: string) => Promise<void>;
   cheerReceipt: (receiptId: string, cheererId: string, receiptUserId: string) => Promise<void>;
   postAnnouncement: (authorId: string, title: string, message: string) => Promise<void>;
+  scheduleInspection: (inspectionDateStr: string, customOffsets?: Record<string, 1 | 2 | 0>) => Promise<void>;
+  clearInspection: (restorePreviousDates?: boolean) => Promise<void>;
 }
 
 const applyTime = (date: Date, timeString: string): Date => {
@@ -172,6 +175,36 @@ export const computeRotation = (chore: Partial<Chore>, users: User[]): User[] =>
   return currentRotationIds.map(id => users.find(u => u.id === id)!).filter(Boolean);
 };
 
+export const getDefaultInspectionOffset = (choreName: string): 1 | 2 => {
+  const name = choreName.toLowerCase();
+  // Vacuum must be 1 day before mopping, so vacuum is Day -2, mopping is Day -1
+  if (name.includes('vaccum') || name.includes('vacuum')) return 2;
+  if (name.includes('mop')) return 1;
+  // Deep cleaning & appliances 2 days before
+  if (name.includes('fridge') || name.includes('drawer')) return 2;
+  if (name.includes('oven') || name.includes('microwave') || name.includes('appliance')) return 2;
+  if (name.includes('master bedroom')) return 2;
+  if (name.includes('counter top') && name.includes('bathroom')) return 2;
+  // Surface / dishes / bins / common toilet 1 day before
+  if (name.includes('dish') || name.includes('sink')) return 1;
+  if (name.includes('countertop') || name.includes('stove') || name.includes('table')) return 1;
+  if (name.includes('bin') || name.includes('toilet')) return 1;
+  return 1;
+};
+
+export const getActiveInspectionDate = (receiptList: Receipt[]): number | null => {
+  const latest = receiptList.find(r => r.type === 'inspection');
+  if (!latest) return null;
+  const d = latest.details as Record<string, unknown>;
+  if (d.action === 'schedule' && typeof d.inspection_timestamp === 'number') {
+    // Keep active through the end of the inspection day (+24 hours)
+    if (Date.now() <= d.inspection_timestamp + 86400000) {
+      return d.inspection_timestamp;
+    }
+  }
+  return null;
+};
+
 export const getNextUser = (chore: Partial<Chore>, users: User[]): User | null => {
   const rotation = computeRotation(chore, users);
   if (rotation.length === 0) return null;
@@ -190,6 +223,7 @@ export const useStore = create<AppState>((set, get) => ({
   activeChoreId: null,
   isLoaded: false,
   currentUserId: null,
+  inspectionDate: null,
 
   init: async () => {
     const [
@@ -210,6 +244,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     const savedUserId = typeof window !== 'undefined' ? localStorage.getItem('chore_current_user_id') : null;
     const initialUserId = users?.some(u => u.id === savedUserId) ? savedUserId : null;
+    const activeInspection = getActiveInspectionDate(receipts || []);
 
     set({
       users: users || [],
@@ -220,6 +255,7 @@ export const useStore = create<AppState>((set, get) => ({
       cheers: cheers || [],
       activeChoreId: chores && chores.length > 0 ? chores[0].id : null,
       currentUserId: initialUserId,
+      inspectionDate: activeInspection,
       isLoaded: true,
     });
 
@@ -244,7 +280,7 @@ export const useStore = create<AppState>((set, get) => ({
     supabase.channel("public:receipts")
       .on("postgres_changes", { event: "*", schema: "public", table: "receipts" }, async () => {
         const { data } = await supabase.from("receipts").select("*").order("created_at", { ascending: false }).limit(100);
-        if (data) set({ receipts: data });
+        if (data) set({ receipts: data, inspectionDate: getActiveInspectionDate(data) });
       }).subscribe();
 
     supabase.channel("public:cheer_log")
@@ -1099,6 +1135,140 @@ export const useStore = create<AppState>((set, get) => ({
       title,
       message,
       created_at: Date.now(),
+    });
+  },
+
+  scheduleInspection: async (inspectionDateStr: string, customOffsets?: Record<string, 1 | 2 | 0>) => {
+    const state = get();
+    const [year, month, day] = inspectionDateStr.split('-').map(Number);
+    if (!year || !month || !day) return;
+    const inspectionDateObj = new Date(year, month - 1, day, 12, 0, 0);
+    const inspectionTimestamp = inspectionDateObj.getTime();
+
+    const shifts: Array<{
+      chore_id: string;
+      chore_name: string;
+      previous_due_date: number;
+      new_due_date: number;
+      offset_days: number;
+    }> = [];
+
+    const updatedChores = [...state.chores];
+
+    for (let i = 0; i < updatedChores.length; i++) {
+      const chore = updatedChores[i];
+      const offset = customOffsets && customOffsets[chore.id] !== undefined
+        ? customOffsets[chore.id]
+        : getDefaultInspectionOffset(chore.name);
+
+      if (offset === 0) continue; // Roommate chose not to shift this chore
+
+      const targetDate = new Date(year, month - 1, day - offset, 12, 0, 0);
+      const [hours, minutes] = (chore.time_of_day || '09:00').split(':').map(Number);
+      targetDate.setHours(hours || 0, minutes || 0, 0, 0);
+      const newDueDate = targetDate.getTime();
+
+      shifts.push({
+        chore_id: chore.id,
+        chore_name: chore.name,
+        previous_due_date: chore.due_date,
+        new_due_date: newDueDate,
+        offset_days: offset,
+      });
+
+      updatedChores[i] = {
+        ...chore,
+        due_date: newDueDate,
+      };
+
+      await supabase.from("chores").update({ due_date: newDueDate }).eq("id", chore.id);
+    }
+
+    const currentUser = state.users.find(u => u.id === state.currentUserId);
+    const authorName = currentUser?.name || 'Roommate';
+    const authorId = state.currentUserId || state.users[0]?.id || '';
+    const formattedDate = format(inspectionDateObj, 'EEEE, MMMM d, yyyy');
+
+    await supabase.from("announcements").insert({
+      author_id: authorId,
+      title: `🔍 House Inspection Scheduled: ${format(inspectionDateObj, 'MMM d, yyyy')}`,
+      message: `${authorName} scheduled house inspection for ${formattedDate}. ${shifts.length} chores have been aligned to 1 or 2 days prior to inspection so the house is thoroughly cleaned! Check your dashboard for updated deadlines.`,
+      created_at: Date.now(),
+    });
+
+    const { data: newReceipt } = await supabase.from("receipts").insert({
+      user_id: authorId,
+      chore_id: null,
+      type: "inspection",
+      details: {
+        action: "schedule",
+        inspection_date: inspectionDateStr,
+        inspection_timestamp: inspectionTimestamp,
+        author_name: authorName,
+        shifts: shifts,
+      },
+      created_at: Date.now(),
+    }).select();
+
+    set({
+      chores: updatedChores,
+      inspectionDate: inspectionTimestamp,
+      receipts: newReceipt ? [newReceipt[0], ...state.receipts] : state.receipts,
+    });
+  },
+
+  clearInspection: async (restorePreviousDates = false) => {
+    const state = get();
+    const latestInspectionReceipt = state.receipts.find(
+      r => r.type === 'inspection' && (r.details as Record<string, unknown>)?.action === 'schedule'
+    );
+
+    let updatedChores = [...state.chores];
+
+    if (restorePreviousDates && latestInspectionReceipt) {
+      const shifts = (latestInspectionReceipt.details as Record<string, unknown>)?.shifts as Array<{
+        chore_id: string;
+        previous_due_date: number;
+      }> | undefined;
+
+      if (shifts && shifts.length > 0) {
+        for (const shift of shifts) {
+          await supabase.from("chores").update({ due_date: shift.previous_due_date }).eq("id", shift.chore_id);
+          const idx = updatedChores.findIndex(c => c.id === shift.chore_id);
+          if (idx !== -1) {
+            updatedChores[idx] = { ...updatedChores[idx], due_date: shift.previous_due_date };
+          }
+        }
+      }
+    }
+
+    const currentUser = state.users.find(u => u.id === state.currentUserId);
+    const authorName = currentUser?.name || 'Roommate';
+    const authorId = state.currentUserId || state.users[0]?.id || '';
+
+    await supabase.from("announcements").insert({
+      author_id: authorId,
+      title: `🔍 Inspection Schedule Cleared`,
+      message: `${authorName} cleared the upcoming house inspection schedule${restorePreviousDates ? ' and restored original chore deadlines' : ''}.`,
+      created_at: Date.now(),
+    });
+
+    const { data: newReceipt } = await supabase.from("receipts").insert({
+      user_id: authorId,
+      chore_id: null,
+      type: "inspection",
+      details: {
+        action: "clear",
+        cleared_by: authorName,
+        restored_previous_dates: restorePreviousDates,
+      },
+      created_at: Date.now(),
+    }).select();
+
+    set({
+      chores: updatedChores,
+      inspectionDate: null,
+      receipts: newReceipt ? [newReceipt[0], ...state.receipts] : state.receipts,
     });
   },
 }));

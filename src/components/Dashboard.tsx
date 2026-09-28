@@ -4,7 +4,7 @@ import { useStore, computeRotation, getNextUser } from '../store';
 import { CheckCircle, Clock, Camera, Users, ChevronRight, X, Lock, ArrowLeftRight, Sparkles } from 'lucide-react';
 
 export const Dashboard = () => {
-  const { users, chores, receipts, currentUserId, markChoreDone, passChoreTurn } = useStore();
+  const { users, chores, receipts, currentUserId, inspectionDate, markChoreDone, passChoreTurn } = useStore();
   const [currentTime, setCurrentTime] = useState(Date.now());
   
   // Per-chore photo uploads
@@ -82,8 +82,47 @@ export const Dashboard = () => {
     ? computeRotation(choreToSwap, users).filter(u => u.id !== currentUserId)
     : [];
 
+  const daysUntilInspection = inspectionDate
+    ? Math.ceil((inspectionDate - currentTime) / (1000 * 60 * 60 * 24))
+    : null;
+
   return (
     <div className="max-w-2xl mx-auto w-full p-4 flex flex-col gap-6 pb-20">
+
+      {/* TOP SECTION: Inspection Banner */}
+      {inspectionDate && (
+        <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 rounded-2xl shadow-lg p-4 sm:p-5 text-white border-2 border-amber-300">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 bg-white/20 backdrop-blur-sm rounded-xl text-2xl shrink-0 mt-0.5">
+              🔍
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] uppercase tracking-wider font-extrabold bg-white/20 px-2 py-0.5 rounded-full text-amber-100">
+                  Inspection Alignment Active
+                </span>
+                <span className="text-xs text-amber-100 font-bold bg-amber-700/60 px-2 py-0.5 rounded-full">
+                  {daysUntilInspection !== null && (
+                    daysUntilInspection > 1
+                      ? `in ${daysUntilInspection} days`
+                      : daysUntilInspection === 1
+                      ? 'Tomorrow!'
+                      : daysUntilInspection === 0
+                      ? 'Today!'
+                      : 'Inspection Day Passed'
+                  )}
+                </span>
+              </div>
+              <h2 className="text-lg sm:text-xl font-black mt-1 text-white">
+                House Inspection: {format(inspectionDate, 'EEEE, MMMM d, yyyy')}
+              </h2>
+              <p className="text-xs sm:text-sm text-amber-100 mt-1 leading-relaxed">
+                Chores leading up to the inspection have been delayed to 1 or 2 days prior to inspection day. Vacuuming & deep cleaning are set 2 days before; mopping, kitchen surfaces & bins 1 day before so the house is spotless!
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TOP SECTION: My Chores Due Box */}
       {currentUserId ? (
@@ -119,6 +158,9 @@ export const Dashboard = () => {
                 const isPenalty = isLoan ? isOverdue : hoursOverdue >= 48;
                 const isWarning = isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48);
                 const photoFile = photoFiles[chore.id];
+                const isInspectionDue = Boolean(inspectionDate && Math.abs(chore.due_date - inspectionDate) <= (3 * 86400000) && chore.due_date <= inspectionDate);
+                const diffDays = inspectionDate ? Math.round((inspectionDate - chore.due_date) / 86400000) : 0;
+                const inspectionDayLabel = diffDays === 1 ? 'Day -1' : diffDays === 2 ? 'Day -2' : `${diffDays}d Before`;
 
                 let badgeColor = "bg-green-100 text-green-700";
                 if (isPenalty) badgeColor = "bg-red-100 text-red-700 font-bold border border-red-400 animate-pulse";
@@ -145,6 +187,11 @@ export const Dashboard = () => {
                           {isPenalty && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-red-500 text-white font-bold animate-pulse">
                               🍩 Treat Owed!
+                            </span>
+                          )}
+                          {isInspectionDue && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                              🔍 Inspection ({inspectionDayLabel})
                             </span>
                           )}
                         </div>
@@ -232,6 +279,9 @@ export const Dashboard = () => {
         const isWarning = isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48);
 
         const photoFile = photoFiles[chore.id];
+        const isInspectionDue = Boolean(inspectionDate && Math.abs(chore.due_date - inspectionDate) <= (3 * 86400000) && chore.due_date <= inspectionDate);
+        const diffDays = inspectionDate ? Math.round((inspectionDate - chore.due_date) / 86400000) : 0;
+        const inspectionDayLabel = diffDays === 1 ? 'Day -1' : diffDays === 2 ? 'Day -2' : `${diffDays}d Before`;
 
         let statusColor = "bg-green-100 text-green-700";
         if (isPenalty) statusColor = "bg-red-100 text-red-700 animate-pulse border border-red-500 font-bold";
@@ -261,6 +311,11 @@ export const Dashboard = () => {
                   {isPenalty && (
                     <span className="px-3 py-1 rounded-full bg-red-600 text-white font-bold text-xs flex items-center gap-1 animate-pulse">
                       🍩 Treat Owed!
+                    </span>
+                  )}
+                  {isInspectionDue && (
+                    <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300 text-xs flex items-center gap-1">
+                      🔍 Inspection ({inspectionDayLabel})
                     </span>
                   )}
                 </div>
