@@ -205,6 +205,14 @@ export const getActiveInspectionDate = (receiptList: Receipt[]): number | null =
   return null;
 };
 
+export const isInspectionAuthorized = (user: User | null | undefined): boolean => {
+  if (!user) return false;
+  const name = user.name.toLowerCase().trim();
+  return name === 'ahmed' || name === 'minhaz' || name === 'minhaj' ||
+    user.id === '05fcfeb9-0458-4abd-b658-12b6fb9470d1' || // Ahmed
+    user.id === 'e25f95d6-4921-4669-9824-db5a818c37d6';   // Minhaz
+};
+
 export const getNextUser = (chore: Partial<Chore>, users: User[]): User | null => {
   const rotation = computeRotation(chore, users);
   if (rotation.length === 0) return null;
@@ -1140,6 +1148,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   scheduleInspection: async (inspectionDateStr: string, customOffsets?: Record<string, 1 | 2 | 0>) => {
     const state = get();
+    const currentUser = state.users.find(u => u.id === state.currentUserId);
+    if (!isInspectionAuthorized(currentUser)) {
+      alert("Only Minhaz and Ahmed are authorized to set house inspection dates.");
+      return;
+    }
+
     const [year, month, day] = inspectionDateStr.split('-').map(Number);
     if (!year || !month || !day) return;
     const inspectionDateObj = new Date(year, month - 1, day, 12, 0, 0);
@@ -1184,7 +1198,6 @@ export const useStore = create<AppState>((set, get) => ({
       await supabase.from("chores").update({ due_date: newDueDate }).eq("id", chore.id);
     }
 
-    const currentUser = state.users.find(u => u.id === state.currentUserId);
     const authorName = currentUser?.name || 'Roommate';
     const authorId = state.currentUserId || state.users[0]?.id || '';
     const formattedDate = format(inspectionDateObj, 'EEEE, MMMM d, yyyy');
@@ -1219,6 +1232,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   clearInspection: async (restorePreviousDates = false) => {
     const state = get();
+    const currentUser = state.users.find(u => u.id === state.currentUserId);
+    if (!isInspectionAuthorized(currentUser)) {
+      alert("Only Minhaz and Ahmed are authorized to clear house inspection dates.");
+      return;
+    }
+
     const latestInspectionReceipt = state.receipts.find(
       r => r.type === 'inspection' && (r.details as Record<string, unknown>)?.action === 'schedule'
     );
@@ -1242,7 +1261,6 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    const currentUser = state.users.find(u => u.id === state.currentUserId);
     const authorName = currentUser?.name || 'Roommate';
     const authorId = state.currentUserId || state.users[0]?.id || '';
 

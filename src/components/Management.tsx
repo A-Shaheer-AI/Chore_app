@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useStore, getDefaultInspectionOffset } from '../store';
+import { useStore, getDefaultInspectionOffset, isInspectionAuthorized } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
-import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users } from 'lucide-react';
+import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users, Lock, ShieldCheck } from 'lucide-react';
 
 export const Management = () => {
   const { 
@@ -22,6 +22,9 @@ export const Management = () => {
   } = useStore();
   
   const [newUserName, setNewUserName] = useState('');
+  
+  const activeUser = users.find(u => u.id === currentUserId);
+  const canManageInspection = isInspectionAuthorized(activeUser);
   
   // Inspection State
   const [inspectionInputDate, setInspectionInputDate] = useState<string>(
@@ -53,6 +56,10 @@ export const Management = () => {
   };
 
   const handleApplyInspection = async () => {
+    if (!canManageInspection) {
+      alert("Only Minhaz and Ahmed are authorized to set house inspection dates.");
+      return;
+    }
     if (!inspectionInputDate) {
       alert("Please select an inspection date first.");
       return;
@@ -71,6 +78,10 @@ export const Management = () => {
   };
 
   const handleClearInspection = async () => {
+    if (!canManageInspection) {
+      alert("Only Minhaz and Ahmed are authorized to clear house inspection dates.");
+      return;
+    }
     const restore = window.confirm("Do you want to restore the chores' original deadlines before the inspection was scheduled?\n\nClick 'OK' to restore previous deadlines, or 'Cancel' to keep current dates.");
     setIsSchedulingInspection(true);
     try {
@@ -163,6 +174,27 @@ export const Management = () => {
           </div>
         </div>
 
+        {/* Authorization Indicator */}
+        {canManageInspection ? (
+          <div className="mb-4 px-3.5 py-2 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-xl flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <ShieldCheck size={16} className="text-emerald-600" />
+              <span>Authorized Coordinator: <strong>{activeUser?.name}</strong></span>
+            </span>
+            <span className="text-[11px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-extrabold">Full Access</span>
+          </div>
+        ) : (
+          <div className="mb-4 p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+            <Lock size={16} className="text-amber-700 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Inspection Coordinator Restriction</p>
+              <p className="text-amber-800 mt-0.5">
+                Only <strong>Minhaz</strong> and <strong>Ahmed</strong> are authorized to set, modify, or clear house inspection dates. {activeUser ? `(Currently viewing as ${activeUser.name})` : "Please select your profile in '🏠 I am' above."}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Active Inspection Banner / Status */}
         {inspectionDate ? (
           <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -181,8 +213,9 @@ export const Management = () => {
             </div>
             <button
               onClick={handleClearInspection}
-              disabled={isSchedulingInspection}
-              className="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 px-3 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+              disabled={!canManageInspection || isSchedulingInspection}
+              title={!canManageInspection ? "Only Minhaz and Ahmed can clear the inspection schedule" : ""}
+              className="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 px-3 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ❌ Clear Inspection Schedule
             </button>
@@ -199,12 +232,13 @@ export const Management = () => {
             <input
               type="date"
               value={inspectionInputDate}
+              disabled={!canManageInspection}
               onChange={e => {
                 setInspectionInputDate(e.target.value);
                 setInspectionFeedback(null);
               }}
               min={format(new Date(), 'yyyy-MM-dd')}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
             />
             {inspectionInputDate && (
               <span className="text-xs text-gray-500 font-medium">
@@ -214,7 +248,7 @@ export const Management = () => {
             )}
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            💡 <strong>House Inspection Rule:</strong> Vacuuming & deep cleaning are set 2 days before; mopping (1 day after vacuuming), kitchen counters, dishes & bins are set 1 day before.
+            💡 <strong>House Inspection Rule:</strong> Vacuuming & deep cleaning are set 2 days before; mopping (1 day after vacuuming), kitchen counters, dishes & bins are set 1 day before. Only Minhaz and Ahmed can set inspection dates.
           </p>
         </div>
 
@@ -265,7 +299,10 @@ export const Management = () => {
                       <button
                         type="button"
                         onClick={() => handleSetOffset(chore.id, 2)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        disabled={!canManageInspection}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          !canManageInspection ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                        } ${
                           offset === 2
                             ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-300'
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -276,7 +313,10 @@ export const Management = () => {
                       <button
                         type="button"
                         onClick={() => handleSetOffset(chore.id, 1)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        disabled={!canManageInspection}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          !canManageInspection ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                        } ${
                           offset === 1
                             ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-300'
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -287,7 +327,10 @@ export const Management = () => {
                       <button
                         type="button"
                         onClick={() => handleSetOffset(chore.id, 0)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        disabled={!canManageInspection}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          !canManageInspection ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                        } ${
                           offset === 0
                             ? 'bg-gray-700 text-white shadow-sm'
                             : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
@@ -308,8 +351,9 @@ export const Management = () => {
               <button
                 type="button"
                 onClick={handleApplyInspection}
-                disabled={isSchedulingInspection}
-                className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                disabled={!canManageInspection || isSchedulingInspection}
+                title={!canManageInspection ? "Only Minhaz and Ahmed can align chores for inspection" : ""}
+                className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 📅 {isSchedulingInspection ? 'Aligning Chores...' : 'Align All Chores for Inspection'}
               </button>

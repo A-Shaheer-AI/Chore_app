@@ -1,4 +1,4 @@
-import { Info, AlertTriangle, Plane, Crown, Trophy, Bell, ArrowLeftRight } from 'lucide-react';
+import { Info, AlertTriangle, Plane, Crown, Trophy, Bell, ArrowLeftRight, Calendar, ShieldCheck } from 'lucide-react';
 
 export const Rules = () => {
   return (
@@ -12,6 +12,130 @@ export const Rules = () => {
           spaces clean while making it fair, transparent, and a little competitive.
         </p>
         <div className="space-y-6">
+
+          {/* Announcement & Schedule Update Log */}
+          <section className="bg-gradient-to-br from-indigo-50/90 via-purple-50/50 to-white p-5 rounded-2xl border-2 border-indigo-200 shadow-sm">
+            <h2 className="text-xl font-extrabold text-indigo-950 mb-3 flex items-center gap-2">
+              <Bell className="text-indigo-600" /> 📢 Policy Updates &amp; Announcement Log
+            </h2>
+            <p className="text-xs text-indigo-900 mb-4 font-medium">
+              Official record of house policy changes, chore frequency adjustments, and announcement dates:
+            </p>
+
+            <div className="space-y-3.5">
+              {/* Sept 29, 2026 Announcement */}
+              <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
+                  <span className="font-extrabold text-sm text-gray-900 flex items-center gap-1.5">
+                    <span>🗓️</span> Frequency Adjustments &amp; House Inspection Policy
+                  </span>
+                  <span className="text-xs font-bold bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                    Announced: Sept 29, 2026
+                  </span>
+                </div>
+                <ul className="list-disc pl-4 text-xs text-gray-700 space-y-1.5 leading-relaxed">
+                  <li>
+                    <strong>Vacuuming the Whole House:</strong> Frequency changed from 15 days to <strong>every 10 days</strong>.
+                  </li>
+                  <li>
+                    <strong>Mopping the Whole House:</strong> Frequency changed from 30 days to <strong>every 20 days</strong>. Scheduled <strong>1 day after vacuuming</strong> so two vacuumings happen per mopping cycle with one vacuuming in between.
+                  </li>
+                  <li>
+                    <strong>Fridge &amp; Drawers Cleaning:</strong> Changed frequency to <strong>every 20 days</strong> (was 15 days).
+                  </li>
+                  <li>
+                    <strong>House Inspection Alignment:</strong> Chores leading up to inspection day are delayed and aligned to 1 or 2 days prior to inspection day.
+                  </li>
+                  <li>
+                    <strong>Automatic Announcements:</strong> Whenever an inspection date is set or cleared, an announcement is automatically broadcast to the house.
+                  </li>
+                  <li>
+                    <strong>Coordinator Authorization:</strong> <strong>Only Minhaz and Ahmed</strong> are authorized to set, modify, or clear house inspection dates.
+                  </li>
+                </ul>
+              </div>
+
+              {/* Sept 23, 2026 Announcement */}
+              <div className="bg-white p-3.5 rounded-xl border border-indigo-100 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
+                  <span className="font-extrabold text-sm text-gray-900 flex items-center gap-1.5">
+                    <span>🗑️</span> Bin &amp; Trash Neglect Penalty Policy
+                  </span>
+                  <span className="text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-0.5 rounded-full">
+                    Announced: Sept 23, 2026
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Roommates who repeatedly fail to take out household or verge bins—forcing another roommate to perform their chore multiple times consecutively—are issued a <strong>-30 point penalty</strong>.
+                </p>
+              </div>
+
+              {/* Sept 15, 2026 Announcement */}
+              <div className="bg-white p-3.5 rounded-xl border border-indigo-100 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
+                  <span className="font-extrabold text-sm text-gray-900 flex items-center gap-1.5">
+                    <span>🔄</span> 2-Person Return Turn Restoration &amp; 60h Swaps
+                  </span>
+                  <span className="text-xs font-bold bg-gray-100 text-gray-700 px-2.5 py-0.5 rounded-full">
+                    Announced: Sept 15, 2026
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Introduced the <strong>Two-Person Return Turn Restoration Rule</strong> (returns with &gt;1 day remaining restore the chore to the returned roommate) and <strong>Turn Swapping</strong> (-2 pts cost, 60h window with +13/+10/+7 pt reward tiers, -4 pts + treat penalty if exceeded).
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* House Inspection Alignment Section */}
+          <section className="bg-amber-50/70 border border-amber-300 p-5 rounded-2xl shadow-sm">
+            <h2 className="text-xl font-extrabold text-amber-950 border-b border-amber-200 pb-2 mb-3 flex items-center gap-2">
+              <Calendar className="text-amber-700" /> 🔍 House Inspection Alignment Rule
+            </h2>
+            <p className="text-sm text-amber-900 mb-3 leading-relaxed">
+              When a property inspection is scheduled, chore due dates are delayed and aligned so the entire house is freshly cleaned right before the inspection day without doing chores too far in advance.
+            </p>
+
+            <div className="space-y-3 text-xs text-amber-950">
+              <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-xs">
+                <h3 className="font-bold text-sm text-amber-900 mb-1 flex items-center gap-1.5">
+                  <span>📅</span> Two-Day Staged Cleaning Timeline
+                </h3>
+                <ul className="list-disc pl-4 space-y-1.5 mt-2">
+                  <li>
+                    <strong>2 Days Before Inspection (Day -2) — Deep Cleaning &amp; Appliances:</strong>
+                    <span className="text-gray-700 block mt-0.5">
+                      Vacuum the whole house, Fridge &amp; drawers organising/cleaning, Oven &amp; microwave, Master bedroom bathroom, Bathroom &amp; countertop.
+                    </span>
+                  </li>
+                  <li>
+                    <strong>1 Day Before Inspection (Day -1) — Surfaces, Mopping &amp; Waste:</strong>
+                    <span className="text-gray-700 block mt-0.5">
+                      Mop the whole house (scheduled 1 day after vacuuming!), Kitchen countertops &amp; stove, Dishes &amp; sink, Empty inside bins, Common toilet, Verge bins.
+                    </span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-xs">
+                <h3 className="font-bold text-sm text-amber-900 mb-1 flex items-center gap-1.5">
+                  <ShieldCheck size={16} className="text-emerald-600" /> Coordinator Authorization
+                </h3>
+                <p className="text-gray-700 leading-relaxed mt-1">
+                  <strong>Only Minhaz and Ahmed</strong> are authorized to schedule, adjust, or clear house inspection dates. All other roommates have read-only access to inspection deadlines.
+                </p>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-xs">
+                <h3 className="font-bold text-sm text-amber-900 mb-1 flex items-center gap-1.5">
+                  <Bell size={16} className="text-amber-600" /> Automatic House Announcements
+                </h3>
+                <p className="text-gray-600 leading-relaxed mt-1">
+                  Whenever an inspection date is set or cleared by Minhaz or Ahmed, the app automatically publishes an announcement to the <strong>News (Announcements)</strong> tab and creates an inspection log in <strong>Receipts</strong>, notifying all roommates instantly.
+                </p>
+              </div>
+            </div>
+          </section>
 
           <section>
             <h2 className="text-xl font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
