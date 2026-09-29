@@ -103,7 +103,9 @@ export const Receipts = () => {
                             ? details.recipient_name
                             : getUserName(String(details.recipient_id))}
                         </span>
-                        <span className="ml-2 text-xs font-bold text-red-600">-2 pts</span>
+                        <span className="ml-2 text-xs font-bold text-red-600">
+                          -{typeof details.points_deducted === 'number' ? details.points_deducted : 4} pts
+                        </span>
                       </p>
                       <p className="text-xs text-amber-700 mt-0.5 font-medium">
                         ⏱️ 60-hour deadline assigned to take turn

@@ -23,6 +23,29 @@ export const Rules = () => {
             </p>
 
             <div className="space-y-3.5">
+              {/* Sept 30, 2026 Announcement */}
+              <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
+                  <span className="font-extrabold text-sm text-gray-900 flex items-center gap-1.5">
+                    <span>⚖️</span> Turn Swap Rules &amp; First Penalty Leniency
+                  </span>
+                  <span className="text-xs font-bold bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                    Announced: Sept 30, 2026
+                  </span>
+                </div>
+                <ul className="list-disc pl-4 text-xs text-gray-700 space-y-1.5 leading-relaxed">
+                  <li>
+                    <strong>Swap / Pass Fee:</strong> Increased to <strong>4 points</strong> (previously 2 points).
+                  </li>
+                  <li>
+                    <strong>Rotation Cycle Restriction:</strong> Each person can only perform a swap <strong>once per rotation cycle</strong> for each chore.
+                  </li>
+                  <li>
+                    <strong>First Penalty Leniency:</strong> Furqan and Awais were granted a 10-point penalty reduction (reduced to <strong>-20 points</strong>, +10 points refunded) because it was their first penalty. <strong>All ongoing and future penalties remain strictly 30 points.</strong>
+                  </li>
+                </ul>
+              </div>
+
               {/* Sept 29, 2026 Announcement */}
               <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-xs">
                 <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
@@ -213,11 +236,12 @@ export const Rules = () => {
 
           <section>
             <h2 className="text-xl font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
-              <ArrowLeftRight className="text-indigo-500" /> Turn Swapping &amp; Passing (-2 pts)
+              <ArrowLeftRight className="text-indigo-500" /> Turn Swapping &amp; Passing (-4 pts)
             </h2>
             <p className="text-gray-600 mb-2">Can't do your chore right now? You can swap your turn with another roommate:</p>
             <ul className="list-disc pl-5 text-gray-600 space-y-2">
-              <li><strong>Cost:</strong> Passing your turn deducts <strong>2 points</strong> from your score.</li>
+              <li><strong>Cost:</strong> Passing your turn deducts <strong>4 points</strong> from your score.</li>
+              <li><strong>Rotation Limit:</strong> A swap can only be performed <strong>once per rotation cycle per person</strong> for each chore.</li>
               <li><strong>Choose Roommate:</strong> You select which roommate in the chore's rotation takes your place.</li>
               <li><strong>60-Hour Window:</strong> The person who receives the turn has <strong>60 hours</strong> to complete it.</li>
               <li><strong>Recipient Rewards:</strong>

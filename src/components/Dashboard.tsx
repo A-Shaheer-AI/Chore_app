@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { formatDistanceToNow, isPast, format } from 'date-fns';
-import { useStore, computeRotation, getNextUser } from '../store';
+import { useStore, computeRotation, getNextUser, canUserSwapChoreTurn } from '../store';
 import { CheckCircle, Clock, Camera, Users, ChevronRight, X, Lock, ArrowLeftRight, Sparkles } from 'lucide-react';
 
 export const Dashboard = () => {
@@ -220,17 +220,26 @@ export const Dashboard = () => {
                         {photoFile ? `📷 Proof attached` : '+ Photo (+1 pt)'}
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSwapModalChoreId(chore.id);
-                          setSelectedSwapUserId('');
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors"
-                      >
-                        <ArrowLeftRight size={14} />
-                        Swap Turn (-2 pts)
-                      </button>
+                      {(() => {
+                        const swapEligibility = currentUserId
+                          ? canUserSwapChoreTurn(chore, currentUserId, receipts, users)
+                          : { allowed: false, reason: 'Please select your user profile.' };
+                        return (
+                          <button
+                            type="button"
+                            disabled={!swapEligibility.allowed}
+                            title={!swapEligibility.allowed ? swapEligibility.reason : undefined}
+                            onClick={() => {
+                              setSwapModalChoreId(chore.id);
+                              setSelectedSwapUserId('');
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <ArrowLeftRight size={14} />
+                            Swap Turn (-4 pts)
+                          </button>
+                        );
+                      })()}
 
                       <button
                         type="button"
@@ -374,17 +383,26 @@ export const Dashboard = () => {
                         {photoFile ? `📷 Proof attached` : 'Add photo (+1 pt)'}
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSwapModalChoreId(chore.id);
-                          setSelectedSwapUserId('');
-                        }}
-                        className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors w-full sm:w-auto"
-                      >
-                        <ArrowLeftRight size={18} />
-                        Swap Turn (-2 pts)
-                      </button>
+                      {(() => {
+                        const swapEligibility = currentUserId
+                          ? canUserSwapChoreTurn(chore, currentUserId, receipts, users)
+                          : { allowed: false, reason: 'Please select your user profile.' };
+                        return (
+                          <button
+                            type="button"
+                            disabled={!swapEligibility.allowed}
+                            title={!swapEligibility.allowed ? swapEligibility.reason : undefined}
+                            onClick={() => {
+                              setSwapModalChoreId(chore.id);
+                              setSelectedSwapUserId('');
+                            }}
+                            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors w-full sm:w-auto"
+                          >
+                            <ArrowLeftRight size={18} />
+                            Swap Turn (-4 pts)
+                          </button>
+                        );
+                      })()}
 
                       <button
                         onClick={() => handleDone(chore.id)}
@@ -470,7 +488,8 @@ export const Dashboard = () => {
                   ⚖️ How Turn Swapping Works:
                 </p>
                 <ul className="list-disc pl-4 space-y-1 text-amber-800">
-                  <li>It will cost <strong>2 points</strong> of your own score.</li>
+                  <li>It will cost <strong>4 points</strong> of your own score.</li>
+                  <li><strong>Restriction:</strong> Each roommate can only swap <strong>once per rotation cycle</strong> for this chore.</li>
                   <li>The selected roommate will get <strong>60 hours</strong> to complete it.</li>
                   <li>Reward for them: <strong>13 pts</strong> (≤24h), <strong>10 pts</strong> (≤48h), or <strong>7 pts</strong> (≤60h).</li>
                   <li><strong>Turn Swap:</strong> You will take their place when their turn comes around in the rotation!</li>
@@ -480,7 +499,7 @@ export const Dashboard = () => {
 
               <div className="flex items-center justify-between text-xs text-gray-600 bg-gray-50 p-3 rounded-xl border">
                 <span>Your current points: <strong>{currentUserObj?.points || 0}</strong></span>
-                <span>Points after swap: <strong className="text-red-600">{(currentUserObj?.points || 0) - 2}</strong></span>
+                <span>Points after swap: <strong className="text-red-600">{(currentUserObj?.points || 0) - 4}</strong></span>
               </div>
 
               <div className="flex gap-2 justify-end mt-2">
@@ -493,11 +512,11 @@ export const Dashboard = () => {
                 </button>
                 <button
                   type="button"
-                  disabled={!selectedSwapUserId || isSwapping}
+                  disabled={!selectedSwapUserId || isSwapping || (currentUserObj?.points || 0) < 4}
                   onClick={handleConfirmSwap}
                   className="px-5 py-2 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-md transition-all flex items-center gap-1.5"
                 >
-                  {isSwapping ? 'Swapping...' : 'Confirm Swap (-2 pts)'}
+                  {isSwapping ? 'Swapping...' : 'Confirm Swap (-4 pts)'}
                 </button>
               </div>
             </div>

@@ -221,6 +221,57 @@ export const getNextUser = (chore: Partial<Chore>, users: User[]): User | null =
   return rotation[(currentIdx + 1) % rotation.length];
 };
 
+export const canUserSwapChoreTurn = (
+  chore: Chore,
+  userId: string,
+  receipts: Receipt[],
+  users: User[]
+): { allowed: boolean; reason?: string } => {
+  const user = users.find(u => u.id === userId);
+  if (!user) return { allowed: false, reason: "User not found." };
+  if ((user.points || 0) < 4) {
+    return { allowed: false, reason: "You need at least 4 points to swap your turn." };
+  }
+
+  // Check if chore is currently in an active, unfulfilled loan
+  const latestLoanOverall = receipts.find(r => r.chore_id === chore.id && r.type === 'loan');
+  const latestCompletionOverall = receipts.find(r => r.chore_id === chore.id && r.type === 'completion');
+  const isCurrentlyLoaned = Boolean(
+    latestLoanOverall &&
+    (!latestCompletionOverall || latestLoanOverall.created_at > latestCompletionOverall.created_at)
+  );
+  if (isCurrentlyLoaned) {
+    return { allowed: false, reason: "This chore is currently in an active swapped turn and cannot be swapped again until completed." };
+  }
+
+  const rotation = computeRotation(chore, users);
+  const rotationLength = Math.max(1, rotation.length);
+
+  // Find the most recent loan initiated by this user for this chore
+  const latestUserLoan = receipts.find(r =>
+    r.chore_id === chore.id &&
+    r.type === 'loan' &&
+    ((r.details as Record<string, unknown>)?.loaner_id === userId || r.user_id === userId)
+  );
+
+  if (latestUserLoan) {
+    const turnsSinceSwap = receipts.filter(r =>
+      r.chore_id === chore.id &&
+      (r.type === 'completion' || r.type === 'skip') &&
+      r.created_at > latestUserLoan.created_at
+    ).length;
+
+    if (turnsSinceSwap < rotationLength) {
+      return {
+        allowed: false,
+        reason: `A swap can only be performed once per rotation per person (${turnsSinceSwap}/${rotationLength} turns completed in this rotation).`
+      };
+    }
+  }
+
+  return { allowed: true };
+};
+
 export const useStore = create<AppState>((set, get) => ({
   users: [],
   chores: [],
@@ -750,6 +801,12 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
 
+    const swapCheck = canUserSwapChoreTurn(targetChore, loanerId, state.receipts, state.users);
+    if (!swapCheck.allowed) {
+      alert(swapCheck.reason || "You cannot swap this turn.");
+      return;
+    }
+
     // Swap positions: targetUser takes index 0 (now), loaner takes targetIdx
     const swappedRotation = [...ordered];
     swappedRotation[0] = targetUserId;
@@ -758,7 +815,7 @@ export const useStore = create<AppState>((set, get) => ({
     const now = Date.now();
     // 60 hours = 60 * 3600 * 1000 ms
     const newDueDate = now + 60 * 3600 * 1000;
-    const newPoints = (loaner.points || 0) - 2;
+    const newPoints = (loaner.points || 0) - 4;
 
     await supabase.from("users").update({ points: newPoints }).eq("id", loanerId);
 
@@ -778,13 +835,13 @@ export const useStore = create<AppState>((set, get) => ({
         loaner_name: loaner.name,
         recipient_id: targetUserId,
         recipient_name: targetUser.name,
-        points_deducted: 2,
+        points_deducted: 4,
         loaned_at: now,
         original_due_date: targetChore.due_date,
         new_due_date: newDueDate,
         original_rotation: ordered,
         swapped_rotation: swappedRotation,
-        message: `${loaner.name} swapped turn for "${targetChore.name}" with ${targetUser.name} (-2 pts, 60h deadline)`,
+        message: `${loaner.name} swapped turn for "${targetChore.name}" with ${targetUser.name} (-4 pts, 60h deadline)`,
       },
       created_at: now,
     }).select().single();
