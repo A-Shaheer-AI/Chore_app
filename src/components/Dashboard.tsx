@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { formatDistanceToNow, isPast, format } from 'date-fns';
-import { useStore, computeRotation, getNextUser, canUserSwapChoreTurn } from '../store';
+import { useStore, computeRotation, getNextUser, canUserSwapChoreTurn, isMoppingWaitingForVacuum } from '../store';
 import { CheckCircle, Clock, Camera, Users, ChevronRight, X, Lock, ArrowLeftRight, Sparkles } from 'lucide-react';
 
 export const Dashboard = () => {
@@ -152,11 +152,12 @@ export const Dashboard = () => {
           ) : (
             <div className="flex flex-col gap-3">
               {myChoresDue.map(chore => {
-                const isOverdue = isPast(chore.due_date);
-                const hoursOverdue = (currentTime - chore.due_date) / (1000 * 60 * 60);
+                const isMopWaiting = isMoppingWaitingForVacuum(chore, chores, receipts);
+                const isOverdue = !isMopWaiting && isPast(chore.due_date);
+                const hoursOverdue = isMopWaiting ? 0 : (currentTime - chore.due_date) / (1000 * 60 * 60);
                 const isLoan = isChoreLoaned(chore.id);
-                const isPenalty = isLoan ? isOverdue : hoursOverdue >= 48;
-                const isWarning = isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48);
+                const isPenalty = isMopWaiting ? false : (isLoan ? isOverdue : hoursOverdue >= 48);
+                const isWarning = isMopWaiting ? false : (isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48));
                 const photoFile = photoFiles[chore.id];
                 const isInspectionDue = Boolean(inspectionDate && Math.abs(chore.due_date - inspectionDate) <= (3 * 86400000) && chore.due_date <= inspectionDate);
                 const diffDays = inspectionDate ? Math.round((inspectionDate - chore.due_date) / 86400000) : 0;
@@ -175,10 +176,16 @@ export const Dashboard = () => {
                           {chore.name}
                         </h3>
                         <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 ${badgeColor}`}>
-                            <Clock size={12} />
-                            {isOverdue ? `Overdue by ${formatDistanceToNow(chore.due_date)}` : `Due in ${formatDistanceToNow(chore.due_date)}`}
-                          </span>
+                          {isMopWaiting ? (
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1 bg-blue-100 text-blue-800 border border-blue-200">
+                              🧹 Starts after Vacuuming
+                            </span>
+                          ) : (
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 ${badgeColor}`}>
+                              <Clock size={12} />
+                              {isOverdue ? `Overdue by ${formatDistanceToNow(chore.due_date)}` : `Due in ${formatDistanceToNow(chore.due_date)}`}
+                            </span>
+                          )}
                           {isLoan && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-semibold border border-purple-200">
                               🔄 Swapped Turn (60h)
@@ -279,13 +286,14 @@ export const Dashboard = () => {
       )}
 
       {sortedChores.map(chore => {
-        const isOverdue = isPast(chore.due_date);
-        const hoursOverdue = (currentTime - chore.due_date) / (1000 * 60 * 60);
+        const isMopWaiting = isMoppingWaitingForVacuum(chore, chores, receipts);
+        const isOverdue = !isMopWaiting && isPast(chore.due_date);
+        const hoursOverdue = isMopWaiting ? 0 : (currentTime - chore.due_date) / (1000 * 60 * 60);
         const currentUser = users.find(u => u.id === chore.current_user_id);
         const nextUser = getNextUser(chore, users);
         const isLoan = isChoreLoaned(chore.id);
-        const isPenalty = isLoan ? isOverdue : hoursOverdue >= 48;
-        const isWarning = isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48);
+        const isPenalty = isMopWaiting ? false : (isLoan ? isOverdue : hoursOverdue >= 48);
+        const isWarning = isMopWaiting ? false : (isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48));
 
         const photoFile = photoFiles[chore.id];
         const isInspectionDue = Boolean(inspectionDate && Math.abs(chore.due_date - inspectionDate) <= (3 * 86400000) && chore.due_date <= inspectionDate);
@@ -305,10 +313,16 @@ export const Dashboard = () => {
                   {chore.name}
                 </h2>
                 <div className="mt-1 flex flex-wrap gap-2 text-sm">
-                  <span className={`px-3 py-1 rounded-full font-bold flex items-center gap-1 ${statusColor}`}>
-                    <Clock size={14} />
-                    {isOverdue ? `Overdue by ${formatDistanceToNow(chore.due_date)}` : `Due in ${formatDistanceToNow(chore.due_date)}`}
-                  </span>
+                  {isMopWaiting ? (
+                    <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-bold text-xs flex items-center gap-1 border border-blue-200">
+                      🧹 Starts after Vacuuming is marked done
+                    </span>
+                  ) : (
+                    <span className={`px-3 py-1 rounded-full font-bold flex items-center gap-1 ${statusColor}`}>
+                      <Clock size={14} />
+                      {isOverdue ? `Overdue by ${formatDistanceToNow(chore.due_date)}` : `Due in ${formatDistanceToNow(chore.due_date)}`}
+                    </span>
+                  )}
                   <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 font-medium">
                     {format(chore.due_date, "EEEE, h:mm a")}
                   </span>

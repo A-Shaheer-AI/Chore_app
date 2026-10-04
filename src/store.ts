@@ -272,6 +272,47 @@ export const canUserSwapChoreTurn = (
   return { allowed: true };
 };
 
+export const isMoppingWaitingForVacuum = (
+  chore: Chore,
+  chores: Chore[],
+  receipts: Receipt[]
+): boolean => {
+  if (!chore.name.toLowerCase().includes('mop')) return false;
+
+  const vacuumChore = chores.find(
+    c => c.name.toLowerCase().includes('vacuum') || c.name.toLowerCase().includes('vaccum')
+  );
+  if (!vacuumChore) return false;
+
+  const latestVacuumCompletion = receipts.find(
+    r => r.type === 'completion' &&
+    Boolean(
+      (r.details as Record<string, unknown>)?.chore_name &&
+      (((r.details as Record<string, unknown>).chore_name as string).toLowerCase().includes('vacuum') ||
+       ((r.details as Record<string, unknown>).chore_name as string).toLowerCase().includes('vaccum'))
+    )
+  );
+
+  const latestMopCompletion = receipts.find(
+    r => r.type === 'completion' &&
+    Boolean(
+      (r.details as Record<string, unknown>)?.chore_name &&
+      ((r.details as Record<string, unknown>).chore_name as string).toLowerCase().includes('mop')
+    )
+  );
+
+  // If mopping was completed more recently than vacuuming, mopping is waiting for the next vacuuming
+  if (latestMopCompletion && latestVacuumCompletion && latestMopCompletion.created_at >= latestVacuumCompletion.created_at) {
+    return true;
+  }
+
+  if (!latestVacuumCompletion) {
+    return true;
+  }
+
+  return false;
+};
+
 export const useStore = create<AppState>((set, get) => ({
   users: [],
   chores: [],
@@ -467,6 +508,12 @@ export const useStore = create<AppState>((set, get) => ({
           }
         } else {
           // Standard chore overdue checks
+          if (isMoppingWaitingForVacuum(chore, choreList, get().receipts)) {
+            // Mopping starts from the day when vacuuming is marked done.
+            // Do not flag overdue or penalize while waiting for vacuuming.
+            continue;
+          }
+
           const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
 
           if (hoursOverdue >= 24 && hoursOverdue < 48) {
@@ -762,6 +809,46 @@ export const useStore = create<AppState>((set, get) => ({
         users: s.users.map(u => u.id === userForHistory.id ? { ...u, points: newPoints } : u),
         receipts: completionReceipt ? [completionReceipt, ...s.receipts] : s.receipts,
       }));
+    }
+
+    // When vacuuming is marked done, mopping starts from today (scheduled 1 day after vacuuming)
+    const isVacuumChore = targetChore.name.toLowerCase().includes('vacuum') || targetChore.name.toLowerCase().includes('vaccum');
+    if (isVacuumChore) {
+      const mopChore = state.chores.find(c => c.name.toLowerCase().includes('mop'));
+      if (mopChore) {
+        // Align mopping if it is currently due or due within the next 10 days (the 20-day mopping mark)
+        const isMopInCurrentCycle = mopChore.due_date <= now + 10 * 86400000;
+        if (isMopInCurrentCycle) {
+          let mopTargetDate = addDays(new Date(), 1);
+          if (mopChore.time_of_day) {
+            mopTargetDate = applyTime(mopTargetDate, mopChore.time_of_day);
+            if (mopTargetDate.getTime() - now < 18 * 3600 * 1000) {
+              mopTargetDate = addDays(mopTargetDate, 1);
+            }
+          }
+          const nextMopDueDate = mopTargetDate.getTime();
+
+          await supabase.from("chores").update({
+            due_date: nextMopDueDate,
+          }).eq("id", mopChore.id);
+
+          set(s => ({
+            chores: s.chores.map(c => c.id === mopChore.id ? { ...c, due_date: nextMopDueDate } : c)
+          }));
+
+          const mopper = state.users.find(u => u.id === mopChore.current_user_id);
+          if (mopper) {
+            try {
+              sendNotification(
+                "Floor Vacuumed — Mopping Starts!",
+                `${mopper.name}, the house has been vacuumed! Your mopping turn starts now, scheduled 1 day after vacuuming.`
+              );
+            } catch (err) {
+              console.warn(err);
+            }
+          }
+        }
+      }
     }
   },
 

@@ -23,6 +23,29 @@ export const Rules = () => {
             </p>
 
             <div className="space-y-3.5">
+              {/* Oct 4, 2026 Announcement */}
+              <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
+                  <span className="font-extrabold text-sm text-gray-900 flex items-center gap-1.5">
+                    <span>🧹</span> Mopping Start Trigger &amp; Penalty Adjustments
+                  </span>
+                  <span className="text-xs font-bold bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                    Announced: Oct 4, 2026
+                  </span>
+                </div>
+                <ul className="list-disc pl-4 text-xs text-gray-700 space-y-1.5 leading-relaxed">
+                  <li>
+                    <strong>Mopping Follows Vacuuming:</strong> Mopping starts from the day when vacuuming the whole house is marked done for every cycle going forward (scheduled 1 day after vacuuming). Mopping is never penalized while waiting for vacuuming to be completed.
+                  </li>
+                  <li>
+                    <strong>Zubair Mopping Penalty Cleared:</strong> The premature overdue penalty on Zubair was cleared (+4 points restored) and mopping given a fair window starting from vacuuming completion.
+                  </li>
+                  <li>
+                    <strong>Ahmed Inside Bins Cleared &amp; Completed:</strong> Ahmed's penalty was cleared (+4 points restored), marked as done as of yesterday with +10 points awarded, advancing the turn to Arslan.
+                  </li>
+                </ul>
+              </div>
+
               {/* Sept 30, 2026 Announcement */}
               <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-xs">
                 <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
