@@ -582,6 +582,68 @@ export const useStore = create<AppState>((set, get) => ({
                 localStorage.setItem(key, "true");
               }
             }
+
+            // Daily progressive penalty: deduct 2 extra points for each extra day overdue (starting from next cycle)
+            // "for this upcoming one dont apply it, but from next cycle onwards or next eprson who makes chores overdue set it in motion"
+            const isProgressivePenaltyEligible = chore.due_date > 1791177599000;
+            const daysOverdue = Math.floor(hoursOverdue / 24);
+
+            if (isProgressivePenaltyEligible && daysOverdue >= 3) {
+              const overdueUser = get().users.find(u => u.id === chore.current_user_id);
+              const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
+
+              for (let d = 3; d <= daysOverdue; d++) {
+                const dayKey = `overdue_day_${d}_posted_${chore.id}_${chore.due_date}`;
+                const alreadyDeductedDay = get().receipts.some(
+                  r => r.type === 'penalty' &&
+                       r.chore_id === chore.id &&
+                       (r.details as Record<string, unknown>)?.due_date === chore.due_date &&
+                       (r.details as Record<string, unknown>)?.overdue_day === d
+                ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(dayKey)));
+
+                if (!alreadyDeductedDay) {
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem(dayKey, "true");
+                  }
+
+                  const currentUserObj = get().users.find(u => u.id === chore.current_user_id);
+                  if (currentUserObj) {
+                    const newPts = (currentUserObj.points || 0) - 2;
+                    await supabase.from("users").update({ points: newPts }).eq("id", chore.current_user_id);
+                    set(s => ({
+                      users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPts } : u)
+                    }));
+                  }
+
+                  const totalPenaltySoFar = 4 + 2 * (d - 2);
+                  const { data: dayReceipt } = await supabase.from("receipts").insert({
+                    user_id: chore.current_user_id,
+                    chore_id: chore.id,
+                    type: "penalty",
+                    details: {
+                      chore_name: chore.name,
+                      user_name: overdueUserName,
+                      due_date: chore.due_date,
+                      overdue_day: d,
+                      points_awarded: -2,
+                      message: `${overdueUserName} is ${d} days overdue on "${chore.name}" (-2 extra pts, total -${totalPenaltySoFar} pts)`,
+                    },
+                    created_at: now,
+                  }).select().single();
+
+                  if (dayReceipt) {
+                    set(s => ({ receipts: [dayReceipt, ...s.receipts] }));
+                  }
+
+                  if (activeUserId && chore.current_user_id === activeUserId) {
+                    sendNotification(
+                      `Extra Overdue Penalty (-2 pts)`,
+                      `"${chore.name}" is ${d} days late. An extra -2 points was deducted (total -${totalPenaltySoFar} pts)!`
+                    );
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -658,7 +720,12 @@ export const useStore = create<AppState>((set, get) => ({
       const hoursOverdue = (now - targetChore.due_date) / (1000 * 60 * 60);
       if (hoursOverdue < 24) pointsEarned = 10;
       else if (hoursOverdue < 48) pointsEarned = 5;
-      else pointsEarned = alreadyPenalized ? 0 : -4;
+      else if (alreadyPenalized) pointsEarned = 0;
+      else {
+        const daysOverdue = Math.floor(hoursOverdue / 24);
+        const isProgressive = targetChore.due_date > 1791177599000;
+        pointsEarned = isProgressive ? -(4 + 2 * Math.max(0, daysOverdue - 2)) : -4;
+      }
     }
 
     let photoBonus = 0;

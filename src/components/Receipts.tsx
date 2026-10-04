@@ -118,7 +118,11 @@ export const Receipts = () => {
                     <div className="bg-red-50 p-2.5 rounded-xl border border-red-200 mt-0.5">
                       <p className="font-bold text-red-800 text-sm flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
-                          {details.treat_penalty ? '🍩 Treat Alert!' : '⚠️ House Penalty'}
+                          {details.treat_penalty
+                            ? '🍩 Treat Alert!'
+                            : (typeof details.overdue_day === 'number'
+                                ? `⚠️ Day ${details.overdue_day} Overdue Penalty`
+                                : '⚠️ House Penalty')}
                         </span>
                         <span className="text-xs font-extrabold text-red-600 bg-red-100 px-2 py-0.5 rounded-full border border-red-300">
                           {typeof details.points_awarded === 'number'

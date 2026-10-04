@@ -193,7 +193,15 @@ export const Dashboard = () => {
                           )}
                           {isPenalty && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-red-500 text-white font-bold animate-pulse">
-                              🍩 Treat Owed!
+                              {(() => {
+                                const isProgressive = chore.due_date > 1791177599000;
+                                const daysOverdue = Math.floor(hoursOverdue / 24);
+                                if (isProgressive && daysOverdue >= 3) {
+                                  const totalPenalty = 4 + 2 * (daysOverdue - 2);
+                                  return `🍩 Treat Owed (-${totalPenalty} pts)`;
+                                }
+                                return '🍩 Treat Owed!';
+                              })()}
                             </span>
                           )}
                           {isInspectionDue && (
@@ -333,7 +341,15 @@ export const Dashboard = () => {
                   )}
                   {isPenalty && (
                     <span className="px-3 py-1 rounded-full bg-red-600 text-white font-bold text-xs flex items-center gap-1 animate-pulse">
-                      🍩 Treat Owed!
+                      {(() => {
+                        const isProgressive = chore.due_date > 1791177599000;
+                        const daysOverdue = Math.floor(hoursOverdue / 24);
+                        if (isProgressive && daysOverdue >= 3) {
+                          const totalPenalty = 4 + 2 * (daysOverdue - 2);
+                          return `🍩 Treat Owed (-${totalPenalty} pts, ${daysOverdue}d late)`;
+                        }
+                        return '🍩 Treat Owed!';
+                      })()}
                     </span>
                   )}
                   {isInspectionDue && (

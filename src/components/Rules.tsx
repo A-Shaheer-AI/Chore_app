@@ -23,6 +23,26 @@ export const Rules = () => {
             </p>
 
             <div className="space-y-3.5">
+              {/* Oct 5, 2026 Announcement */}
+              <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
+                  <span className="font-extrabold text-sm text-gray-900 flex items-center gap-1.5">
+                    <span>⏳</span> Progressive Daily Overdue Penalty Policy
+                  </span>
+                  <span className="text-xs font-bold bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                    Announced: Oct 5, 2026
+                  </span>
+                </div>
+                <ul className="list-disc pl-4 text-xs text-gray-700 space-y-1.5 leading-relaxed">
+                  <li>
+                    <strong>Progressive Overdue Deductions:</strong> Starting from the next cycle onwards (for all upcoming chores due after Oct 4), reaching 48 hours overdue triggers the initial <strong>-4 point penalty</strong> and Treat Alert. For <strong>every additional day</strong> (each 24 hours) the chore remains overdue, an <strong>extra -2 points</strong> are deducted (4 + 2 pts/day: 3 days late = -6 pts, 4 days late = -8 pts, etc.).
+                  </li>
+                  <li>
+                    <strong>Exemption for Current Round:</strong> Pre-existing overdue chores from this current round are grandfathered under the previous flat rate. The progressive deductions take effect starting from the next rotation cycle onwards or for the next person who lets a chore fall overdue.
+                  </li>
+                </ul>
+              </div>
+
               {/* Oct 4, 2026 Announcement */}
               <div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-xs">
                 <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-gray-100 pb-2 mb-2">
@@ -290,13 +310,31 @@ export const Rules = () => {
 
           <section>
             <h2 className="text-xl font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
-              <AlertTriangle className="text-orange-500" /> The 48-Hour Deadline &amp; Treat Alert
+              <AlertTriangle className="text-orange-500" /> Overdue Deadlines, Progressive Penalties &amp; Treat Alerts
             </h2>
             <ul className="list-disc pl-5 text-gray-600 space-y-2">
               <li><strong>0–24 hrs late:</strong> Due date turns orange (+10 pts if completed).</li>
               <li><strong>24–48 hrs late:</strong> Flashing orange WARNING badge (+5 pts if completed).</li>
-              <li><strong>48+ hrs late:</strong> Flashing red PENALTY MODE (-4 pts).</li>
-              <li><strong>🍩 House Treat Alert:</strong> When 48 hours are crossed, the system automatically posts an alert to both <strong>News (Announcements)</strong> and <strong>Receipts</strong>. The person officially <strong>owes everyone in the house a food treat!</strong></li>
+              <li><strong>48 hrs late (Day 2):</strong> Flashing red PENALTY MODE (<strong>-4 pts</strong>) and automated <strong>🍩 House Treat Alert</strong> posted to News &amp; Receipts. You officially <strong>owe everyone in the house a food treat!</strong></li>
+              <li><strong>Daily Progressive Penalties (From Next Cycle Onwards):</strong> For every additional day a chore remains overdue past 48 hours, an extra <strong>-2 points</strong> are deducted automatically:
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  <div className="bg-red-50 border border-red-200 p-2.5 rounded-xl">
+                    <span className="font-bold text-red-900 block">48–72h (Day 2):</span>
+                    <strong className="text-red-700 text-sm">-4 points</strong>
+                    <span className="text-red-600 block mt-0.5">+ Treat Owed</span>
+                  </div>
+                  <div className="bg-red-100/70 border border-red-300 p-2.5 rounded-xl">
+                    <span className="font-bold text-red-950 block">72–96h (Day 3):</span>
+                    <strong className="text-red-800 text-sm">-6 points</strong>
+                    <span className="text-red-600 block mt-0.5">(4 + 2 extra pts)</span>
+                  </div>
+                  <div className="bg-red-200/60 border border-red-400 p-2.5 rounded-xl">
+                    <span className="font-bold text-red-950 block">96h+ (Day 4+):</span>
+                    <strong className="text-red-900 text-sm">-8 pts, -10 pts...</strong>
+                    <span className="text-red-700 block mt-0.5">(-2 pts per extra day)</span>
+                  </div>
+                </div>
+              </li>
             </ul>
           </section>
 
