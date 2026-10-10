@@ -156,8 +156,8 @@ export const Dashboard = () => {
                 const isOverdue = !isMopWaiting && isPast(chore.due_date);
                 const hoursOverdue = isMopWaiting ? 0 : (currentTime - chore.due_date) / (1000 * 60 * 60);
                 const isLoan = isChoreLoaned(chore.id);
-                const isPenalty = isMopWaiting ? false : (isLoan ? isOverdue : hoursOverdue >= 48);
-                const isWarning = isMopWaiting ? false : (isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48));
+                const isPenalty = isMopWaiting ? false : hoursOverdue >= 48;
+                const isWarning = isMopWaiting ? false : (hoursOverdue >= 24 && hoursOverdue < 48);
                 const photoFile = photoFiles[chore.id];
                 const isInspectionDue = Boolean(inspectionDate && Math.abs(chore.due_date - inspectionDate) <= (3 * 86400000) && chore.due_date <= inspectionDate);
                 const diffDays = inspectionDate ? Math.round((inspectionDate - chore.due_date) / 86400000) : 0;
@@ -303,8 +303,8 @@ export const Dashboard = () => {
         const currentUser = users.find(u => u.id === chore.current_user_id);
         const nextUser = getNextUser(chore, users);
         const isLoan = isChoreLoaned(chore.id);
-        const isPenalty = isMopWaiting ? false : (isLoan ? isOverdue : hoursOverdue >= 48);
-        const isWarning = isMopWaiting ? false : (isLoan ? false : (hoursOverdue >= 24 && hoursOverdue < 48));
+        const isPenalty = isMopWaiting ? false : hoursOverdue >= 48;
+        const isWarning = isMopWaiting ? false : (hoursOverdue >= 24 && hoursOverdue < 48);
 
         const photoFile = photoFiles[chore.id];
         const isInspectionDue = Boolean(inspectionDate && Math.abs(chore.due_date - inspectionDate) <= (3 * 86400000) && chore.due_date <= inspectionDate);

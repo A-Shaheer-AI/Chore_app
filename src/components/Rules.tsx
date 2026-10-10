@@ -35,7 +35,7 @@ export const Rules = () => {
                 </div>
                 <ul className="list-disc pl-4 text-xs text-gray-700 space-y-1.5 leading-relaxed">
                   <li>
-                    <strong>No Treat on Swapped Turns:</strong> For swapped chores, exceeding the 60-hour deadline deducts points normally (<strong>-4 points</strong>), but does <strong>not</strong> trigger a food treat penalty. Treat penalties remain strictly reserved for regular chores that reach 48+ hours overdue.
+                    <strong>No Treat &amp; 48-Hour Overdue Grace Period for Swapped Turns:</strong> 60 hours is the on-time window for a swapped chore. Just like any standard chore, penalties are <strong>not applied immediately</strong> when the 60 hours elapse. Instead, roommates receive the standard <strong>48-hour window</strong> after the 60h deadline before any penalty (<strong>-4 points</strong>) is applied. Swapped chores never owe a food treat to the house.
                   </li>
                   <li>
                     <strong>Arslan Bins Cleared &amp; Credited:</strong> Arslan completed the inside bins chore before the deadline on the last day but forgot to mark it done in the app. His treat alert and overdue penalty receipts were cleared, and his score was credited with <strong>+10 points</strong> (restored to 71 pts).
@@ -322,7 +322,7 @@ export const Rules = () => {
                     <strong className="text-amber-800 text-sm">+7 points</strong>
                   </div>
                 </div>
-                <span className="text-xs text-gray-500 mt-1 block">(&gt;60 hours overdue results in -4 penalty pts; no food treat owed for swapped turns).</span>
+                <span className="text-xs text-gray-500 mt-1 block">(After 60 hours is the deadline. Just like any chore, roommates have 48 hours after deadline before the -4 penalty applies; no food treat owed for swapped turns).</span>
               </li>
               <li><strong>Rotation Swap:</strong> You swap positions in the rotation with that person for this round. When their original turn comes up, <strong>it will be your turn</strong>! Once everyone has completed the round, the rotation automatically resets back to the original order.</li>
             </ul>
