@@ -449,17 +449,17 @@ export const useStore = create<AppState>((set, get) => ({
           const isOver60h = now >= chore.due_date;
 
           if (isOver60h) {
-            const treatKey = `treat_posted_loan_60h_${chore.id}_${chore.due_date}`;
+            const loanPenaltyKey = `penalty_posted_loan_60h_${chore.id}_${chore.due_date}`;
             const alreadyPosted = get().receipts.some(
               r => r.type === 'penalty' && r.chore_id === chore.id && (r.details as Record<string, unknown>)?.due_date === chore.due_date
-            ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(treatKey)));
+            ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(loanPenaltyKey)));
 
             if (!alreadyPosted) {
               const overdueUser = get().users.find(u => u.id === chore.current_user_id);
               const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
 
               if (typeof window !== 'undefined') {
-                localStorage.setItem(treatKey, "true");
+                localStorage.setItem(loanPenaltyKey, "true");
               }
 
               if (overdueUser) {
@@ -470,14 +470,8 @@ export const useStore = create<AppState>((set, get) => ({
                 }));
               }
 
-              await supabase.from("announcements").insert({
-                author_id: chore.current_user_id,
-                title: `🍩 Treat Alert: ${overdueUserName} owes everyone a treat!`,
-                message: `${overdueUserName} was loaned "${chore.name}" with a 60-hour deadline and did not complete it in time. As per house rules, they lose 4 points and owe everyone in the house a food treat!`,
-                created_at: now,
-              });
-
-              const { data: treatReceipt } = await supabase.from("receipts").insert({
+              // Swapped chores deduct normal penalty points (-4 pts) without treat alert
+              const { data: penaltyReceipt } = await supabase.from("receipts").insert({
                 user_id: chore.current_user_id,
                 chore_id: chore.id,
                 type: "penalty",
@@ -485,23 +479,23 @@ export const useStore = create<AppState>((set, get) => ({
                   chore_name: chore.name,
                   user_name: overdueUserName,
                   due_date: chore.due_date,
-                  treat_penalty: true,
+                  treat_penalty: false,
                   is_loan: true,
                   points_awarded: -4,
-                  message: `${overdueUserName} exceeded the 60-hour loan deadline on "${chore.name}" (-4 pts) and owes everyone a treat!`,
+                  message: `${overdueUserName} exceeded the 60-hour swapped turn deadline on "${chore.name}" (-4 pts).`,
                 },
                 created_at: now,
               }).select().single();
 
-              if (treatReceipt) {
-                set(s => ({ receipts: [treatReceipt, ...s.receipts] }));
+              if (penaltyReceipt) {
+                set(s => ({ receipts: [penaltyReceipt, ...s.receipts] }));
               }
             }
 
             if (activeUserId && chore.current_user_id === activeUserId) {
               const key = `notified_loan_60h_${chore.id}_${chore.due_date}`;
               if (!localStorage.getItem(key)) {
-                sendNotification("Loan Deadline Exceeded (60h+)", `Penalty! "${chore.name}" exceeded the 60-hour deadline (-4 pts). You owe the house a treat!`);
+                sendNotification("Swapped Turn Deadline Exceeded (60h+)", `Penalty! "${chore.name}" exceeded the 60-hour deadline (-4 pts).`);
                 localStorage.setItem(key, "true");
               }
             }

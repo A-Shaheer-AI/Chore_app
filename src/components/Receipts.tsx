@@ -24,7 +24,9 @@ export const Receipts = () => {
     await cheerReceipt(receiptId, currentUserId, receiptUserId);
   };
 
-  const choreReceipts = receipts.filter(r => r.type !== ('announcement' as unknown));
+  const choreReceipts = receipts.filter(
+    r => !['announcement', 'house_settings', 'contact_directory'].includes(r.type as string)
+  );
 
   return (
     <div className="max-w-2xl mx-auto w-full p-4 flex flex-col gap-4 pb-20">
@@ -120,9 +122,11 @@ export const Receipts = () => {
                         <span className="flex items-center gap-1.5">
                           {details.treat_penalty
                             ? '🍩 Treat Alert!'
-                            : (typeof details.overdue_day === 'number'
-                                ? `⚠️ Day ${details.overdue_day} Overdue Penalty`
-                                : '⚠️ House Penalty')}
+                            : (details.is_loan
+                                ? '⚠️ Swapped Turn Deadline Exceeded'
+                                : (typeof details.overdue_day === 'number'
+                                    ? `⚠️ Day ${details.overdue_day} Overdue Penalty`
+                                    : '⚠️ House Penalty'))}
                         </span>
                         <span className="text-xs font-extrabold text-red-600 bg-red-100 px-2 py-0.5 rounded-full border border-red-300">
                           {typeof details.points_awarded === 'number'
