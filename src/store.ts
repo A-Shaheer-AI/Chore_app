@@ -106,9 +106,19 @@ export const calculateNextDueDate = (chore: Partial<Chore>, fromDate: Date = new
     case 'daily':
       nextDate = addDays(fromDate, 1);
       break;
-    case 'weekly':
-      nextDate = nextDay(fromDate, (chore.day_of_week || 0) as Day);
+    case 'weekly': {
+      const targetDay = (chore.day_of_week ?? 0) as Day;
+      if (chore.due_date) {
+        let candidate = addDays(new Date(chore.due_date), 7);
+        while (candidate.getTime() <= fromDate.getTime() + 2 * 24 * 60 * 60 * 1000) {
+          candidate = addDays(candidate, 7);
+        }
+        nextDate = candidate;
+      } else {
+        nextDate = nextDay(fromDate, targetDay);
+      }
       break;
+    }
     case 'custom_interval':
       nextDate = addDays(fromDate, chore.frequency_days || 1);
       break;
