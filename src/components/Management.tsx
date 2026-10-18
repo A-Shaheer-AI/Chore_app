@@ -50,7 +50,7 @@ export const Management = () => {
     const [year, month, day] = inspectionInputDate.split('-').map(Number);
     if (!year || !month || !day) return chore.due_date;
     const targetDate = new Date(year, month - 1, day - offset, 12, 0, 0);
-    const [hours, minutes] = (chore.time_of_day || '09:00').split(':').map(Number);
+    const [hours, minutes] = (chore.time_of_day || '22:00').split(':').map(Number);
     targetDate.setHours(hours || 0, minutes || 0, 0, 0);
     return targetDate.getTime();
   };
