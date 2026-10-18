@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import { format } from 'date-fns';
 import { useStore } from '../store';
 import { supabase } from '../supabase';
-import { Heart, CheckCircle, Camera, SkipForward, ArrowLeftRight, AlertTriangle, Calendar } from 'lucide-react';
+import { Heart, CheckCircle, Camera, SkipForward, ArrowLeftRight, AlertTriangle, Calendar, MessageSquare } from 'lucide-react';
 
 const TYPE_META: Record<string, { icon: ReactElement; label: string; color: string }> = {
   completion: { icon: <CheckCircle size={18} className="text-green-500 shrink-0" />, label: 'Completed chore', color: 'green' },
@@ -12,6 +12,7 @@ const TYPE_META: Record<string, { icon: ReactElement; label: string; color: stri
   loan:       { icon: <ArrowLeftRight size={18} className="text-amber-500 shrink-0" />, label: 'Turn swapped', color: 'amber' },
   penalty:    { icon: <AlertTriangle size={18} className="text-red-500 shrink-0" />, label: 'Treat penalty', color: 'red' },
   inspection: { icon: <Calendar size={18} className="text-amber-600 shrink-0" />, label: 'Inspection alignment', color: 'amber' },
+  sms:        { icon: <MessageSquare size={18} className="text-blue-500 shrink-0" />, label: 'Overdue SMS alert', color: 'blue' },
 };
 
 export const Receipts = () => {
@@ -25,7 +26,7 @@ export const Receipts = () => {
   };
 
   const choreReceipts = receipts.filter(
-    r => !['announcement', 'house_settings', 'contact_directory'].includes(r.type as string)
+    r => !['announcement', 'house_settings', 'contact_directory', 'settings'].includes(r.type as string)
   );
 
   return (
@@ -192,6 +193,35 @@ export const Receipts = () => {
                         <p className="mt-1 text-xs text-amber-700">
                           Cleared by <span className="font-semibold">{String(details.cleared_by || getUserName(r.user_id))}</span>
                           {details.restored_previous_dates ? ' (original deadlines restored)' : ''}.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* SMS Receipt */}
+                  {r.type === 'sms' && (
+                    <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 mt-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-blue-900 text-sm flex items-center gap-1.5">
+                          📱 Overdue SMS Sent to {getUserName(r.user_id)}
+                        </span>
+                        <span className="text-[11px] bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-bold">
+                          24h+ Alert
+                        </span>
+                      </div>
+                      {choreName && (
+                        <p className="text-xs text-blue-800 mt-1">
+                          Chore: <span className="font-semibold text-gray-800">{choreName}</span>
+                        </p>
+                      )}
+                      {Boolean(details.recipient_phone) && (
+                        <p className="text-[11px] text-blue-600 font-mono mt-0.5">
+                          Sent to: {String(details.recipient_phone)}
+                        </p>
+                      )}
+                      {Boolean(details.message) && (
+                        <p className="text-xs text-gray-700 bg-white/80 border border-blue-100 rounded-lg p-2 mt-2 italic">
+                          "{String(details.message)}"
                         </p>
                       )}
                     </div>

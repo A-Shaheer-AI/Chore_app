@@ -6,8 +6,12 @@ CREATE TABLE public.users (
     name TEXT NOT NULL,
     away_start BIGINT,
     away_end BIGINT,
-    points INTEGER DEFAULT 0
+    points INTEGER DEFAULT 0,
+    phone TEXT
 );
+
+-- For existing databases, add phone column:
+-- ALTER TABLE public.users ADD COLUMN IF NOT EXISTS phone TEXT;
 
 -- 2. Create chores table
 CREATE TABLE public.chores (

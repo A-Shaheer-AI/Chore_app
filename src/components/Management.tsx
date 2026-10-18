@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useStore, getDefaultInspectionOffset, isInspectionAuthorized } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
-import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users, Lock, ShieldCheck } from 'lucide-react';
+import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users, Lock, ShieldCheck, Phone, MessageSquare, Send, Eye, EyeOff, CheckCircle } from 'lucide-react';
 
 export const Management = () => {
   const { 
@@ -19,6 +19,11 @@ export const Management = () => {
     inspectionDate,
     scheduleInspection,
     clearInspection,
+    telnyxSettings,
+    userPhones,
+    updateTelnyxSettings,
+    updateUserPhone,
+    sendTestTelnyxSMS,
   } = useStore();
   
   const [newUserName, setNewUserName] = useState('');
@@ -26,6 +31,20 @@ export const Management = () => {
   const activeUser = users.find(u => u.id === currentUserId);
   const canManageInspection = isInspectionAuthorized(activeUser);
   
+  // Telnyx State
+  const [telnyxEnabled, setTelnyxEnabled] = useState<boolean | null>(null);
+  const [telnyxFrom, setTelnyxFrom] = useState<string | null>(null);
+  const [telnyxApiKey, setTelnyxApiKey] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [telnyxFeedback, setTelnyxFeedback] = useState<string | null>(null);
+  const [testNumber, setTestNumber] = useState('');
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const currentEnabled = telnyxEnabled !== null ? telnyxEnabled : telnyxSettings.enabled;
+  const currentFrom = telnyxFrom !== null ? telnyxFrom : telnyxSettings.fromNumber;
+  const currentApiKey = telnyxApiKey !== null ? telnyxApiKey : telnyxSettings.apiKey;
+
   // Inspection State
   const [inspectionInputDate, setInspectionInputDate] = useState<string>(
     inspectionDate ? format(inspectionDate, 'yyyy-MM-dd') : ''
@@ -450,6 +469,19 @@ export const Management = () => {
                 />
               </div>
 
+              {/* Mobile Phone Number */}
+              <div className="mt-2 flex items-center gap-2">
+                <Phone size={14} className="text-gray-400" />
+                <label className="text-xs text-gray-500">Mobile Phone:</label>
+                <input
+                  type="tel"
+                  placeholder="+614... or 04..."
+                  value={userPhones[user.id] || ''}
+                  onChange={e => updateUserPhone(user.id, e.target.value)}
+                  className="text-xs border border-gray-300 rounded px-2 py-1 w-48 font-mono placeholder:text-gray-300"
+                />
+              </div>
+
               {/* Skip-turn redemption */}
               {currentUserId === user.id && (
                 <div className="mt-2">
@@ -466,6 +498,165 @@ export const Management = () => {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* Telnyx SMS Section */}
+      <section className="bg-white rounded-xl shadow-md p-6">
+        <div className="flex items-center justify-between border-b pb-3 mb-4">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="text-blue-600" size={22} />
+            <h2 className="text-xl font-bold text-gray-800">Telnyx Automated Overdue SMS (24h+)</h2>
+          </div>
+          <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
+            telnyxSettings.enabled && telnyxSettings.fromNumber && telnyxSettings.apiKey
+              ? 'bg-green-100 text-green-800 border border-green-200'
+              : 'bg-gray-100 text-gray-600 border border-gray-200'
+          }`}>
+            {telnyxSettings.enabled && telnyxSettings.fromNumber && telnyxSettings.apiKey ? '🟢 Active' : '⚪ Disabled / Incomplete'}
+          </span>
+        </div>
+
+        <p className="text-xs text-gray-600 mb-5 leading-relaxed">
+          Automatically sends an SMS via your purchased Telnyx number to the assigned roommate whenever a chore has been <strong>overdue for more than 24 hours</strong> and not marked completed.
+        </p>
+
+        {telnyxFeedback && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-300 text-green-800 text-xs font-bold rounded-lg flex items-center gap-2">
+            <span>✅</span>
+            <span>{telnyxFeedback}</span>
+          </div>
+        )}
+
+        <div className="space-y-4 max-w-xl">
+          {/* Enable Toggle */}
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-200">
+            <div>
+              <p className="text-sm font-bold text-gray-800">Enable Automated 24h Overdue SMS</p>
+              <p className="text-xs text-gray-500">Dispatches an SMS alert to roommate's mobile once 24 hours late</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={currentEnabled}
+                onChange={e => setTelnyxEnabled(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
+          {/* Telnyx Phone Number */}
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">
+              Telnyx Phone Number (From):
+            </label>
+            <div className="relative">
+              <Phone className="absolute left-3 top-2.5 text-gray-400" size={16} />
+              <input
+                type="text"
+                placeholder="+61... or +1..."
+                value={currentFrom}
+                onChange={e => setTelnyxFrom(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">Your purchased Telnyx number with country code (e.g., +61... or +1...).</p>
+          </div>
+
+          {/* Telnyx API Key */}
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">
+              Telnyx API Key (V2 API Token):
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-2.5 text-gray-400" size={16} />
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                placeholder="KEY..."
+                value={currentApiKey}
+                onChange={e => setTelnyxApiKey(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg pl-9 pr-10 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">Found in Telnyx Mission Control Portal → Account Settings → Keys & Credentials.</p>
+          </div>
+
+          {/* Save Settings Button */}
+          <button
+            type="button"
+            onClick={async () => {
+              await updateTelnyxSettings({
+                enabled: currentEnabled,
+                fromNumber: currentFrom.trim(),
+                apiKey: currentApiKey.trim(),
+              });
+              setTelnyxFeedback("Telnyx settings saved successfully!");
+              setTimeout(() => setTelnyxFeedback(null), 3000);
+            }}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 shadow-sm"
+          >
+            <CheckCircle size={16} /> Save Telnyx Settings
+          </button>
+
+          {/* Test SMS Box */}
+          <div className="mt-6 pt-5 border-t border-gray-200">
+            <h3 className="text-sm font-bold text-gray-800 mb-2 flex items-center gap-1.5">
+              <Send size={15} className="text-blue-500" /> Test Telnyx Delivery
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Send an immediate test SMS to verify that your Telnyx number and API key can dispatch text messages.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="tel"
+                placeholder="Destination phone (+614... or 04...)"
+                value={testNumber}
+                onChange={e => setTestNumber(e.target.value)}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <button
+                type="button"
+                disabled={isSendingTest || !testNumber.trim() || !telnyxApiKey || !telnyxFrom}
+                onClick={async () => {
+                  setIsSendingTest(true);
+                  setTestResult(null);
+                  try {
+                    const res = await sendTestTelnyxSMS(testNumber.trim());
+                    if (res.success) {
+                      setTestResult({ success: true, message: "Test SMS sent successfully via Telnyx! Check your phone." });
+                    } else {
+                      setTestResult({ success: false, message: res.error || "Failed to send test SMS." });
+                    }
+                  } catch (err) {
+                    setTestResult({ success: false, message: String(err) });
+                  } finally {
+                    setIsSendingTest(false);
+                  }
+                }}
+                className="bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
+              >
+                {isSendingTest ? 'Sending...' : 'Send Test SMS'}
+              </button>
+            </div>
+
+            {testResult && (
+              <div className={`mt-3 p-3 rounded-lg text-xs font-medium ${
+                testResult.success
+                  ? 'bg-green-50 border border-green-200 text-green-800'
+                  : 'bg-red-50 border border-red-200 text-red-800'
+              }`}>
+                {testResult.success ? '✅ ' : '❌ '} {testResult.message}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* Chores Section */}

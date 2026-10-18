@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { addDays, isWithinInterval, nextDay, format } from 'date-fns';
 import type { Day } from 'date-fns';
 import { supabase } from './supabase';
+import { sendTelnyxSMS, DEFAULT_TELNYX_SETTINGS } from './services/telnyx';
+import type { TelnyxSettings } from './services/telnyx';
 
 export type User = {
   id: string;
@@ -12,6 +14,7 @@ export type User = {
   skip_next_chore: boolean;
   rent_due_date: string | null;
   rent_reminder_offset: number;
+  phone?: string | null;
 };
 
 export type ScheduleType = 'daily' | 'weekly' | 'custom_interval' | 'specific_date';
@@ -42,7 +45,7 @@ export type Receipt = {
   id: string;
   user_id: string;
   chore_id: string | null;
-  type: 'completion' | 'photo' | 'cheer' | 'skip' | 'loan' | 'penalty' | 'inspection';
+  type: 'completion' | 'photo' | 'cheer' | 'skip' | 'loan' | 'penalty' | 'inspection' | 'sms' | 'settings';
   details: Record<string, unknown>;
   created_at: number;
 };
@@ -73,6 +76,8 @@ interface AppState {
   isLoaded: boolean;
   currentUserId: string | null;
   inspectionDate: number | null;
+  telnyxSettings: TelnyxSettings;
+  userPhones: Record<string, string>;
 
   init: () => Promise<void>;
   setCurrentUser: (id: string) => void;
@@ -83,6 +88,9 @@ interface AppState {
   removeUser: (id: string) => Promise<void>;
   updateUserAway: (id: string, start: number | null, end: number | null) => Promise<void>;
   updateUserRentDueDate: (id: string, date: string | null) => Promise<void>;
+  updateUserPhone: (userId: string, phone: string) => Promise<void>;
+  updateTelnyxSettings: (settings: Partial<TelnyxSettings>) => Promise<void>;
+  sendTestTelnyxSMS: (to: string, message?: string) => Promise<{ success: boolean; error?: string }>;
   addChore: (payload: Omit<Chore, 'id' | 'current_user_id' | 'due_date' | 'rotation_order'>) => Promise<void>;
   removeChore: (id: string) => Promise<void>;
   updateChoreAssignment: (choreId: string, userIds: string[] | null) => Promise<void>;
@@ -334,6 +342,8 @@ export const useStore = create<AppState>((set, get) => ({
   isLoaded: false,
   currentUserId: null,
   inspectionDate: null,
+  telnyxSettings: DEFAULT_TELNYX_SETTINGS,
+  userPhones: {},
 
   init: async () => {
     const [
@@ -356,6 +366,35 @@ export const useStore = create<AppState>((set, get) => ({
     const initialUserId = users?.some(u => u.id === savedUserId) ? savedUserId : null;
     const activeInspection = getActiveInspectionDate(receipts || []);
 
+    // Load Telnyx config & contacts from receipts settings or localStorage
+    const telnyxReceipt = receipts?.find(r => r.type === 'settings' && (r.details as Record<string, unknown>)?.setting_key === 'telnyx_config');
+    const localTelnyx = typeof window !== 'undefined' ? localStorage.getItem('telnyx_config') : null;
+    let parsedLocal: Record<string, unknown> | null = null;
+    try {
+      if (localTelnyx) parsedLocal = JSON.parse(localTelnyx);
+    } catch {
+      // ignore JSON parse error
+    }
+    const details = (telnyxReceipt?.details as Record<string, unknown>) || parsedLocal || {};
+
+    const initialTelnyxSettings: TelnyxSettings = {
+      enabled: Boolean(details.enabled),
+      fromNumber: (details.fromNumber as string) || (details.telnyx_phone as string) || '',
+      apiKey: (details.apiKey as string) || (details.telnyx_api_key as string) || '',
+      proxyUrl: (details.proxyUrl as string) || '',
+    };
+
+    const initialUserPhones: Record<string, string> = {
+      ...((details.contacts as Record<string, string>) || {}),
+    };
+    if (users) {
+      for (const u of users) {
+        if ((u as Record<string, unknown>).phone && !initialUserPhones[u.id]) {
+          initialUserPhones[u.id] = String((u as Record<string, unknown>).phone);
+        }
+      }
+    }
+
     set({
       users: users || [],
       chores: chores || [],
@@ -366,6 +405,8 @@ export const useStore = create<AppState>((set, get) => ({
       activeChoreId: chores && chores.length > 0 ? chores[0].id : null,
       currentUserId: initialUserId,
       inspectionDate: activeInspection,
+      telnyxSettings: initialTelnyxSettings,
+      userPhones: initialUserPhones,
       isLoaded: true,
     });
 
@@ -463,12 +504,70 @@ export const useStore = create<AppState>((set, get) => ({
         // hoursOverdue is the hours elapsed since the official deadline (chore.due_date).
         const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
 
-        if (hoursOverdue >= 24 && hoursOverdue < 48) {
-          if (activeUserId && chore.current_user_id === activeUserId) {
+        if (hoursOverdue >= 24) {
+          // Browser notification (for currently active user)
+          if (hoursOverdue < 48 && activeUserId && chore.current_user_id === activeUserId) {
             const key = `notified_24h_${chore.id}_${chore.due_date}`;
             if (!localStorage.getItem(key)) {
               sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
               localStorage.setItem(key, "true");
+            }
+          }
+
+          // Telnyx Automated SMS notification for chores 24h+ overdue
+          const telnyx = get().telnyxSettings;
+          if (telnyx.enabled && telnyx.fromNumber && telnyx.apiKey) {
+            const smsReceiptKey = `sms_24h_sent_${chore.id}_${chore.due_date}`;
+            const alreadySentSms = get().receipts.some(
+              r => r.type === 'sms' &&
+                   r.chore_id === chore.id &&
+                   (r.details as Record<string, unknown>)?.due_date === chore.due_date
+            ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(smsReceiptKey)));
+
+            if (!alreadySentSms) {
+              const overdueUser = get().users.find(u => u.id === chore.current_user_id);
+              const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
+              const userPhone = get().userPhones[chore.current_user_id] || (overdueUser as Record<string, unknown>)?.phone;
+
+              if (userPhone && typeof userPhone === 'string') {
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem(smsReceiptKey, "true");
+                }
+
+                const smsMessage = `Chore Roulette: Hey ${overdueUserName}! Friendly reminder that "${chore.name}" is now over 24 hours overdue. Please mark it done in the app before it reaches 48h to avoid a -4 pt penalty & treat fine!`;
+
+                sendTelnyxSMS({
+                  to: userPhone,
+                  message: smsMessage,
+                  settings: telnyx,
+                }).then(async (res) => {
+                  if (res.success) {
+                    const { data: smsReceipt } = await supabase.from("receipts").insert({
+                      user_id: chore.current_user_id,
+                      chore_id: chore.id,
+                      type: "sms",
+                      details: {
+                        chore_name: chore.name,
+                        user_name: overdueUserName,
+                        recipient_phone: userPhone,
+                        due_date: chore.due_date,
+                        message: smsMessage,
+                        telnyx_message_id: res.messageId,
+                        sent_at: now,
+                      },
+                      created_at: now,
+                    }).select().single();
+
+                    if (smsReceipt) {
+                      set(s => ({ receipts: [smsReceipt, ...s.receipts] }));
+                    }
+                  } else {
+                    console.warn("Telnyx SMS dispatch failed:", res.error);
+                  }
+                }).catch(err => {
+                  console.error("Telnyx dispatch error:", err);
+                });
+              }
             }
           }
         }
@@ -1486,5 +1585,73 @@ export const useStore = create<AppState>((set, get) => ({
       inspectionDate: null,
       receipts: newReceipt ? [newReceipt[0], ...state.receipts] : state.receipts,
     });
+  },
+
+  updateTelnyxSettings: async (settings) => {
+    const current = get().telnyxSettings;
+    const updated: TelnyxSettings = { ...current, ...settings };
+    set({ telnyxSettings: updated });
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('telnyx_config', JSON.stringify({
+        ...updated,
+        contacts: get().userPhones,
+      }));
+    }
+
+    const adminId = get().currentUserId || get().users[0]?.id;
+    if (adminId) {
+      await supabase.from('receipts').insert({
+        type: 'settings',
+        user_id: adminId,
+        chore_id: null,
+        details: {
+          setting_key: 'telnyx_config',
+          ...updated,
+          contacts: get().userPhones,
+        },
+        created_at: Date.now(),
+      });
+    }
+  },
+
+  updateUserPhone: async (userId, phone) => {
+    const cleanPhone = phone.trim();
+    const updatedPhones = { ...get().userPhones, [userId]: cleanPhone };
+    set({ userPhones: updatedPhones });
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('telnyx_config', JSON.stringify({
+        ...get().telnyxSettings,
+        contacts: updatedPhones,
+      }));
+    }
+
+    try {
+      await supabase.from('users').update({ phone: cleanPhone } as Record<string, unknown>).eq('id', userId);
+    } catch {
+      // Column might not exist yet; gracefully handled via receipts settings
+    }
+
+    const adminId = get().currentUserId || get().users[0]?.id;
+    if (adminId) {
+      await supabase.from('receipts').insert({
+        type: 'settings',
+        user_id: adminId,
+        chore_id: null,
+        details: {
+          setting_key: 'telnyx_config',
+          ...get().telnyxSettings,
+          contacts: updatedPhones,
+        },
+        created_at: Date.now(),
+      });
+    }
+  },
+
+  sendTestTelnyxSMS: async (to, message) => {
+    const settings = get().telnyxSettings;
+    const testMsg = message || `Chore Roulette: Test SMS from your Telnyx number! Automated 24h overdue alerts are configured. 🎲`;
+    return sendTelnyxSMS({ to, message: testMsg, settings });
   },
 }));
