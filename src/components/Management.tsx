@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useStore, getDefaultInspectionOffset, isInspectionAuthorized } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
-import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users, Lock, ShieldCheck, Phone, MessageSquare, Send, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users, Lock, ShieldCheck, Phone, MessageSquare, Send, CheckCircle } from 'lucide-react';
 
 export const Management = () => {
   const { 
@@ -33,15 +33,12 @@ export const Management = () => {
   
   // Telnyx State
   const [telnyxFrom, setTelnyxFrom] = useState<string | null>(null);
-  const [telnyxApiKey, setTelnyxApiKey] = useState<string | null>(null);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [telnyxFeedback, setTelnyxFeedback] = useState<string | null>(null);
   const [testNumber, setTestNumber] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const currentFrom = telnyxFrom !== null ? telnyxFrom : telnyxSettings.fromNumber;
-  const currentApiKey = telnyxApiKey !== null ? telnyxApiKey : telnyxSettings.apiKey;
 
   // Inspection State
   const [inspectionInputDate, setInspectionInputDate] = useState<string>(
@@ -554,31 +551,6 @@ export const Management = () => {
             <p className="text-[11px] text-gray-500 mt-1">Your purchased Telnyx number with country code (e.g., +614... or +1...).</p>
           </div>
 
-          {/* Telnyx API Key */}
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">
-              Telnyx API Key (V2 API Token):
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-2.5 text-gray-400" size={16} />
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                placeholder="KEY... (Optional if set in Supabase Edge Secrets)"
-                value={currentApiKey}
-                onChange={e => setTelnyxApiKey(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg pl-9 pr-10 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
-              >
-                {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-            <p className="text-[11px] text-gray-500 mt-1">Found in Telnyx Mission Control Portal → Account Settings → Keys & Credentials.</p>
-          </div>
-
           {/* Save Settings Button */}
           <button
             type="button"
@@ -586,14 +558,13 @@ export const Management = () => {
               await updateTelnyxSettings({
                 enabled: true,
                 fromNumber: currentFrom.trim(),
-                apiKey: currentApiKey.trim(),
               });
-              setTelnyxFeedback("Telnyx settings saved successfully!");
+              setTelnyxFeedback("Telnyx phone number saved successfully!");
               setTimeout(() => setTelnyxFeedback(null), 3000);
             }}
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 shadow-sm"
           >
-            <CheckCircle size={16} /> Save Telnyx Settings
+            <CheckCircle size={16} /> Save Phone Number
           </button>
 
           {/* Test SMS Box */}

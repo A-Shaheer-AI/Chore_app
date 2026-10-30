@@ -379,8 +379,8 @@ export const useStore = create<AppState>((set, get) => ({
 
     const initialTelnyxSettings: TelnyxSettings = {
       enabled: details.enabled !== undefined ? Boolean(details.enabled) : true,
-      fromNumber: (details.fromNumber as string) || (details.telnyx_phone as string) || '',
-      apiKey: (details.apiKey as string) || (details.telnyx_api_key as string) || '',
+      fromNumber: (details.fromNumber as string) || (details.telnyx_phone as string) || '+61485939817',
+      apiKey: '',
       proxyUrl: (details.proxyUrl as string) || '',
     };
 
@@ -1592,11 +1592,15 @@ export const useStore = create<AppState>((set, get) => ({
     const updated: TelnyxSettings = { ...current, ...settings };
     set({ telnyxSettings: updated });
 
+    const safeConfig = {
+      enabled: updated.enabled,
+      fromNumber: updated.fromNumber,
+      proxyUrl: updated.proxyUrl,
+      contacts: get().userPhones,
+    };
+
     if (typeof window !== 'undefined') {
-      localStorage.setItem('telnyx_config', JSON.stringify({
-        ...updated,
-        contacts: get().userPhones,
-      }));
+      localStorage.setItem('telnyx_config', JSON.stringify(safeConfig));
     }
 
     const adminId = get().currentUserId || get().users[0]?.id;
@@ -1607,8 +1611,7 @@ export const useStore = create<AppState>((set, get) => ({
         chore_id: null,
         details: {
           setting_key: 'telnyx_config',
-          ...updated,
-          contacts: get().userPhones,
+          ...safeConfig,
         },
         created_at: Date.now(),
       });
@@ -1620,11 +1623,15 @@ export const useStore = create<AppState>((set, get) => ({
     const updatedPhones = { ...get().userPhones, [userId]: cleanPhone };
     set({ userPhones: updatedPhones });
 
+    const safeConfig = {
+      enabled: get().telnyxSettings.enabled,
+      fromNumber: get().telnyxSettings.fromNumber,
+      proxyUrl: get().telnyxSettings.proxyUrl,
+      contacts: updatedPhones,
+    };
+
     if (typeof window !== 'undefined') {
-      localStorage.setItem('telnyx_config', JSON.stringify({
-        ...get().telnyxSettings,
-        contacts: updatedPhones,
-      }));
+      localStorage.setItem('telnyx_config', JSON.stringify(safeConfig));
     }
 
     try {
@@ -1641,8 +1648,7 @@ export const useStore = create<AppState>((set, get) => ({
         chore_id: null,
         details: {
           setting_key: 'telnyx_config',
-          ...get().telnyxSettings,
-          contacts: updatedPhones,
+          ...safeConfig,
         },
         created_at: Date.now(),
       });
