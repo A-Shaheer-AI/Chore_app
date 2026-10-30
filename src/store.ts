@@ -1675,7 +1675,7 @@ export const useStore = create<AppState>((set, get) => ({
     const user = get().users.find(u => u.id === userId);
     const userName = user?.name || 'Roommate';
 
-    const testMsg = `Chore Roulette: Hey ${userName}! This is a test SMS from Chore Roulette. Your number is verified for automated chore reminders! 🎲 (Automated alert - do not reply)`;
+    const testMsg = `Chore Roulette: Hey ${userName}! Your phone number has been connected. You will receive automated SMS alerts if any chore is overdue by 24h+. 🎲 (Automated alert - do not reply)`;
 
     const res = await sendTelnyxSMS({
       to: cleanPhone,

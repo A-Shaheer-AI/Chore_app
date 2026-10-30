@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useStore, getDefaultInspectionOffset, isInspectionAuthorized } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
-import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users, Lock, ShieldCheck, Phone, MessageSquare, Send, CheckCircle } from 'lucide-react';
+import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users, Lock, ShieldCheck, Phone, MessageSquare, CheckCircle } from 'lucide-react';
 
 export const Management = () => {
   const { 
@@ -22,7 +22,6 @@ export const Management = () => {
     userPhones,
     verifiedPhones,
     verifyAndSaveUserPhone,
-    sendTestTelnyxSMS,
   } = useStore();
   
   const [newUserName, setNewUserName] = useState('');
@@ -30,15 +29,11 @@ export const Management = () => {
   const activeUser = users.find(u => u.id === currentUserId);
   const canManageInspection = isInspectionAuthorized(activeUser);
   
-  // Telnyx & Roommate Verification State
+  // Roommate Phone State
   const [editingPhoneUserId, setEditingPhoneUserId] = useState<string | null>(null);
   const [phoneInputValues, setPhoneInputValues] = useState<Record<string, string>>({});
-  const [verifyingUserId, setVerifyingUserId] = useState<string | null>(null);
-  const [verificationStatus, setVerificationStatus] = useState<Record<string, { success?: boolean; message?: string }>>({});
-
-  const [testNumber, setTestNumber] = useState('');
-  const [isSendingTest, setIsSendingTest] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [savingPhoneUserId, setSavingPhoneUserId] = useState<string | null>(null);
+  const [phoneStatus, setPhoneStatus] = useState<Record<string, { success?: boolean; message?: string }>>({});
 
   // Inspection State
   const [inspectionInputDate, setInspectionInputDate] = useState<string>(
@@ -538,31 +533,30 @@ export const Management = () => {
           </span>
         </div>
 
-        {/* Housemates Phone Setup & Testing Section */}
+        {/* Housemates Phone Setup Section */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
                 <Users size={16} className="text-blue-600" />
-                Housemate Phone Numbers & SMS Verification
+                Housemate Mobile Numbers (SMS Alerts)
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Enter your mobile number with country extension (e.g., <code>+614...</code> or <code>04...</code>). A test SMS is dispatched to verify delivery, and the number remains saved to your profile unless edited.
+                Enter each housemate's mobile number with country extension (e.g., <code>+614...</code> or <code>04...</code>). A test SMS is automatically sent upon saving to confirm connectivity.
               </p>
             </div>
             <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
-              {users.filter(u => userPhones[u.id] && verifiedPhones[u.id]).length} / {users.length} verified
+              {users.filter(u => userPhones[u.id]).length} / {users.length} added
             </span>
           </div>
 
           <div className="space-y-3">
             {users.map(u => {
               const savedPhone = userPhones[u.id];
-              const isVerified = Boolean(verifiedPhones[u.id] && savedPhone);
-              const isEditing = editingPhoneUserId === u.id || (!savedPhone);
+              const isEditing = editingPhoneUserId === u.id || !savedPhone;
               const currentInput = phoneInputValues[u.id] !== undefined ? phoneInputValues[u.id] : (savedPhone || '');
-              const isVerifying = verifyingUserId === u.id;
-              const feedback = verificationStatus[u.id];
+              const isSaving = savingPhoneUserId === u.id;
+              const feedback = phoneStatus[u.id];
 
               return (
                 <div key={u.id} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/60 hover:bg-gray-50 transition-all">
@@ -576,48 +570,25 @@ export const Management = () => {
                       )}
                     </div>
 
-                    {isVerified && !isEditing ? (
+                    {savedPhone && !isEditing ? (
                       <div className="flex-1 flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-sm font-bold text-gray-800">{savedPhone}</span>
                           <span className="text-[11px] bg-green-100 text-green-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-green-200">
-                            <CheckCircle size={11} /> Saved & Verified
+                            <CheckCircle size={11} /> Saved
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            disabled={isVerifying}
-                            onClick={async () => {
-                              setVerifyingUserId(u.id);
-                              setVerificationStatus(prev => ({ ...prev, [u.id]: {} }));
-                              const res = await sendTestTelnyxSMS(
-                                savedPhone,
-                                `Chore Roulette: Test SMS to ${u.name}! Overdue chore alerts are working smoothly. 🎲 (Automated alert - do not reply)`
-                              );
-                              if (res.success) {
-                                setVerificationStatus(prev => ({ ...prev, [u.id]: { success: true, message: `Test SMS sent to ${savedPhone}! Check phone.` } }));
-                              } else {
-                                setVerificationStatus(prev => ({ ...prev, [u.id]: { success: false, message: res.error || "Failed to deliver SMS." } }));
-                              }
-                              setVerifyingUserId(null);
-                            }}
-                            className="text-xs text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-100 border border-gray-300 font-semibold px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
-                          >
-                            {isVerifying ? "Sending..." : "📲 Re-test"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingPhoneUserId(u.id);
-                              setPhoneInputValues(prev => ({ ...prev, [u.id]: savedPhone }));
-                              setVerificationStatus(prev => ({ ...prev, [u.id]: {} }));
-                            }}
-                            className="text-xs text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 font-semibold px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
-                          >
-                            ✏️ Edit
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPhoneUserId(u.id);
+                            setPhoneInputValues(prev => ({ ...prev, [u.id]: savedPhone }));
+                            setPhoneStatus(prev => ({ ...prev, [u.id]: {} }));
+                          }}
+                          className="text-xs text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 font-semibold px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                        >
+                          ✏️ Edit
+                        </button>
                       </div>
                     ) : (
                       <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -637,22 +608,22 @@ export const Management = () => {
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
-                            disabled={isVerifying || !currentInput.trim()}
+                            disabled={isSaving || !currentInput.trim()}
                             onClick={async () => {
-                              setVerifyingUserId(u.id);
-                              setVerificationStatus(prev => ({ ...prev, [u.id]: {} }));
+                              setSavingPhoneUserId(u.id);
+                              setPhoneStatus(prev => ({ ...prev, [u.id]: {} }));
                               const res = await verifyAndSaveUserPhone(u.id, currentInput.trim());
                               if (res.success) {
-                                setVerificationStatus(prev => ({ ...prev, [u.id]: { success: true, message: `Verified & saved! Test SMS sent to ${currentInput.trim()}.` } }));
+                                setPhoneStatus(prev => ({ ...prev, [u.id]: { success: true, message: `Saved! A test SMS was sent to ${currentInput.trim()}.` } }));
                                 setEditingPhoneUserId(null);
                               } else {
-                                setVerificationStatus(prev => ({ ...prev, [u.id]: { success: false, message: res.error || "Failed to deliver test SMS." } }));
+                                setPhoneStatus(prev => ({ ...prev, [u.id]: { success: false, message: res.error || "Failed to deliver SMS. Check number." } }));
                               }
-                              setVerifyingUserId(null);
+                              setSavingPhoneUserId(null);
                             }}
-                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1 shadow-sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shadow-sm"
                           >
-                            {isVerifying ? "Testing & Saving..." : "🚀 Test & Save Number"}
+                            {isSaving ? "Saving & Sending SMS..." : "Save Number"}
                           </button>
                           {savedPhone && isEditing && (
                             <button
@@ -660,7 +631,7 @@ export const Management = () => {
                               onClick={() => {
                                 setEditingPhoneUserId(null);
                                 setPhoneInputValues(prev => ({ ...prev, [u.id]: savedPhone }));
-                                setVerificationStatus(prev => ({ ...prev, [u.id]: {} }));
+                                setPhoneStatus(prev => ({ ...prev, [u.id]: {} }));
                               }}
                               className="text-xs text-gray-500 hover:text-gray-700 bg-white border border-gray-200 px-2.5 py-1.5 rounded-lg"
                             >
@@ -685,58 +656,6 @@ export const Management = () => {
               );
             })}
           </div>
-        </div>
-
-        {/* Ad-hoc Custom Number Test */}
-        <div className="mt-8 pt-5 border-t border-gray-200">
-          <h3 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-1.5">
-            <Send size={15} className="text-blue-500" /> Test Delivery to Any Other Number
-          </h3>
-          <p className="text-xs text-gray-500 mb-3">
-            Send a one-off test SMS to any mobile number with country extension to verify carrier delivery.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-2 max-w-xl">
-            <input
-              type="tel"
-              placeholder="+614... or 04..."
-              value={testNumber}
-              onChange={e => setTestNumber(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-            <button
-              type="button"
-              disabled={isSendingTest || !testNumber.trim()}
-              onClick={async () => {
-                setIsSendingTest(true);
-                setTestResult(null);
-                try {
-                  const res = await sendTestTelnyxSMS(testNumber.trim());
-                  if (res.success) {
-                    setTestResult({ success: true, message: "Test SMS dispatched successfully via Telnyx! Check your phone." });
-                  } else {
-                    setTestResult({ success: false, message: res.error || "Failed to send test SMS." });
-                  }
-                } catch (err) {
-                  setTestResult({ success: false, message: String(err) });
-                } finally {
-                  setIsSendingTest(false);
-                }
-              }}
-              className="bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
-            >
-              {isSendingTest ? 'Sending...' : 'Send Test SMS'}
-            </button>
-          </div>
-
-          {testResult && (
-            <div className={`mt-3 max-w-xl p-3 rounded-lg text-xs font-medium ${
-              testResult.success
-                ? 'bg-green-50 border border-green-200 text-green-800'
-                : 'bg-red-50 border border-red-200 text-red-800'
-            }`}>
-              {testResult.success ? '✅ ' : '❌ '} {testResult.message}
-            </div>
-          )}
         </div>
       </section>
 
