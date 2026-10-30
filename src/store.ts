@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { addDays, isWithinInterval, nextDay, format } from 'date-fns';
 import type { Day } from 'date-fns';
 import { supabase } from './supabase';
-import { sendTelnyxSMS, DEFAULT_TELNYX_SETTINGS } from './services/telnyx';
+import { sendTelnyxSMS, DEFAULT_TELNYX_SETTINGS, cleanE164Phone } from './services/telnyx';
 import type { TelnyxSettings } from './services/telnyx';
 
 export type User = {
@@ -78,6 +78,7 @@ interface AppState {
   inspectionDate: number | null;
   telnyxSettings: TelnyxSettings;
   userPhones: Record<string, string>;
+  verifiedPhones: Record<string, boolean>;
 
   init: () => Promise<void>;
   setCurrentUser: (id: string) => void;
@@ -89,6 +90,8 @@ interface AppState {
   updateUserAway: (id: string, start: number | null, end: number | null) => Promise<void>;
   updateUserRentDueDate: (id: string, date: string | null) => Promise<void>;
   updateUserPhone: (userId: string, phone: string) => Promise<void>;
+  verifyAndSaveUserPhone: (userId: string, phone: string) => Promise<{ success: boolean; error?: string }>;
+  removeUserPhone: (userId: string) => Promise<void>;
   updateTelnyxSettings: (settings: Partial<TelnyxSettings>) => Promise<void>;
   sendTestTelnyxSMS: (to: string, message?: string) => Promise<{ success: boolean; error?: string }>;
   addChore: (payload: Omit<Chore, 'id' | 'current_user_id' | 'due_date' | 'rotation_order'>) => Promise<void>;
@@ -344,6 +347,7 @@ export const useStore = create<AppState>((set, get) => ({
   inspectionDate: null,
   telnyxSettings: DEFAULT_TELNYX_SETTINGS,
   userPhones: {},
+  verifiedPhones: {},
 
   init: async () => {
     const [
@@ -387,10 +391,16 @@ export const useStore = create<AppState>((set, get) => ({
     const initialUserPhones: Record<string, string> = {
       ...((details.contacts as Record<string, string>) || {}),
     };
+    const initialVerifiedPhones: Record<string, boolean> = {
+      ...((details.verifiedContacts as Record<string, boolean>) || {}),
+    };
     if (users) {
       for (const u of users) {
         if ((u as Record<string, unknown>).phone && !initialUserPhones[u.id]) {
           initialUserPhones[u.id] = String((u as Record<string, unknown>).phone);
+        }
+        if (initialUserPhones[u.id] && initialVerifiedPhones[u.id] === undefined) {
+          initialVerifiedPhones[u.id] = true;
         }
       }
     }
@@ -407,6 +417,7 @@ export const useStore = create<AppState>((set, get) => ({
       inspectionDate: activeInspection,
       telnyxSettings: initialTelnyxSettings,
       userPhones: initialUserPhones,
+      verifiedPhones: initialVerifiedPhones,
       isLoaded: true,
     });
 
@@ -1638,6 +1649,120 @@ export const useStore = create<AppState>((set, get) => ({
       await supabase.from('users').update({ phone: cleanPhone } as Record<string, unknown>).eq('id', userId);
     } catch {
       // Column might not exist yet; gracefully handled via receipts settings
+    }
+
+    const adminId = get().currentUserId || get().users[0]?.id;
+    if (adminId) {
+      await supabase.from('receipts').insert({
+        type: 'settings',
+        user_id: adminId,
+        chore_id: null,
+        details: {
+          setting_key: 'telnyx_config',
+          ...safeConfig,
+        },
+        created_at: Date.now(),
+      });
+    }
+  },
+
+  verifyAndSaveUserPhone: async (userId, rawPhone) => {
+    const cleanPhone = cleanE164Phone(rawPhone);
+    if (!cleanPhone || cleanPhone.length < 8) {
+      return { success: false, error: 'Please enter a valid phone number with extension (e.g. +61 4... or 04...).' };
+    }
+
+    const user = get().users.find(u => u.id === userId);
+    const userName = user?.name || 'Roommate';
+
+    const testMsg = `Chore Roulette: Hey ${userName}! This is a test SMS from Chore Roulette. Your number is verified for automated chore reminders! 🎲 (Automated alert - do not reply)`;
+
+    const res = await sendTelnyxSMS({
+      to: cleanPhone,
+      message: testMsg,
+      settings: get().telnyxSettings,
+    });
+
+    if (!res.success) {
+      return { success: false, error: res.error || 'Failed to dispatch test SMS. Please check your number.' };
+    }
+
+    const updatedPhones = { ...get().userPhones, [userId]: cleanPhone };
+    const updatedVerified = { ...get().verifiedPhones, [userId]: true };
+    set({ userPhones: updatedPhones, verifiedPhones: updatedVerified });
+
+    const safeConfig = {
+      enabled: get().telnyxSettings.enabled,
+      fromNumber: get().telnyxSettings.fromNumber,
+      proxyUrl: get().telnyxSettings.proxyUrl,
+      contacts: updatedPhones,
+      verifiedContacts: updatedVerified,
+    };
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('telnyx_config', JSON.stringify(safeConfig));
+    }
+
+    try {
+      await supabase.from('users').update({ phone: cleanPhone } as Record<string, unknown>).eq('id', userId);
+    } catch {
+      // Column might not exist yet; gracefully handled via receipts settings
+    }
+
+    const adminId = get().currentUserId || get().users[0]?.id;
+    if (adminId) {
+      await supabase.from('receipts').insert({
+        type: 'settings',
+        user_id: adminId,
+        chore_id: null,
+        details: {
+          setting_key: 'telnyx_config',
+          ...safeConfig,
+        },
+        created_at: Date.now(),
+      });
+
+      const { data: smsReceipt } = await supabase.from('receipts').insert({
+        type: 'sms',
+        user_id: userId,
+        chore_id: null,
+        details: {
+          type: 'phone_verification',
+          user_name: userName,
+          recipient_phone: cleanPhone,
+          message: testMsg,
+          telnyx_message_id: res.messageId,
+          sent_at: Date.now(),
+        },
+        created_at: Date.now(),
+      }).select().single();
+
+      if (smsReceipt) {
+        set(s => ({ receipts: [smsReceipt, ...s.receipts] }));
+      }
+    }
+
+    return { success: true };
+  },
+
+  removeUserPhone: async (userId) => {
+    const updatedPhones = { ...get().userPhones };
+    delete updatedPhones[userId];
+    const updatedVerified = { ...get().verifiedPhones };
+    delete updatedVerified[userId];
+
+    set({ userPhones: updatedPhones, verifiedPhones: updatedVerified });
+
+    const safeConfig = {
+      enabled: get().telnyxSettings.enabled,
+      fromNumber: get().telnyxSettings.fromNumber,
+      proxyUrl: get().telnyxSettings.proxyUrl,
+      contacts: updatedPhones,
+      verifiedContacts: updatedVerified,
+    };
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('telnyx_config', JSON.stringify(safeConfig));
     }
 
     const adminId = get().currentUserId || get().users[0]?.id;

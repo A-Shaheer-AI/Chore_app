@@ -64,8 +64,18 @@ export const sendTelnyxSMS = async (options: {
     if (!edgeError && edgeData && (edgeData.success || edgeData.data?.id)) {
       return { success: true, messageId: edgeData.data?.id || edgeData.messageId };
     }
-  } catch {
+    if (edgeData?.errors?.[0]?.detail) {
+      return { success: false, error: edgeData.errors[0].detail };
+    }
+    if (edgeData?.error) {
+      return { success: false, error: edgeData.error };
+    }
+    if (edgeError) {
+      return { success: false, error: edgeError.message || String(edgeError) };
+    }
+  } catch (err) {
     // Edge function not available; fallback to direct/proxy API
+    console.warn("Edge function invocation failed:", err);
   }
 
   // 2. Direct / Proxy dispatch using Telnyx API

@@ -19,10 +19,9 @@ export const Management = () => {
     inspectionDate,
     scheduleInspection,
     clearInspection,
-    telnyxSettings,
     userPhones,
-    updateTelnyxSettings,
-    updateUserPhone,
+    verifiedPhones,
+    verifyAndSaveUserPhone,
     sendTestTelnyxSMS,
   } = useStore();
   
@@ -31,14 +30,15 @@ export const Management = () => {
   const activeUser = users.find(u => u.id === currentUserId);
   const canManageInspection = isInspectionAuthorized(activeUser);
   
-  // Telnyx State
-  const [telnyxFrom, setTelnyxFrom] = useState<string | null>(null);
-  const [telnyxFeedback, setTelnyxFeedback] = useState<string | null>(null);
+  // Telnyx & Roommate Verification State
+  const [editingPhoneUserId, setEditingPhoneUserId] = useState<string | null>(null);
+  const [phoneInputValues, setPhoneInputValues] = useState<Record<string, string>>({});
+  const [verifyingUserId, setVerifyingUserId] = useState<string | null>(null);
+  const [verificationStatus, setVerificationStatus] = useState<Record<string, { success?: boolean; message?: string }>>({});
+
   const [testNumber, setTestNumber] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  const currentFrom = telnyxFrom !== null ? telnyxFrom : telnyxSettings.fromNumber;
 
   // Inspection State
   const [inspectionInputDate, setInspectionInputDate] = useState<string>(
@@ -465,16 +465,27 @@ export const Management = () => {
               </div>
 
               {/* Mobile Phone Number */}
-              <div className="mt-2 flex items-center gap-2">
-                <Phone size={14} className="text-gray-400" />
-                <label className="text-xs text-gray-500">Mobile Phone:</label>
-                <input
-                  type="tel"
-                  placeholder="+614... or 04..."
-                  value={userPhones[user.id] || ''}
-                  onChange={e => updateUserPhone(user.id, e.target.value)}
-                  className="text-xs border border-gray-300 rounded px-2 py-1 w-48 font-mono placeholder:text-gray-300"
-                />
+              <div className="mt-2 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 text-gray-500">
+                  <Phone size={13} className="text-gray-400" />
+                  <span>SMS Number:</span>
+                  {userPhones[user.id] ? (
+                    <span className="font-mono font-semibold text-gray-700 flex items-center gap-1.5">
+                      {userPhones[user.id]}
+                      {verifiedPhones[user.id] ? (
+                        <span className="text-[10px] text-green-700 font-bold bg-green-50 px-1.5 py-0.5 rounded border border-green-200">
+                          ✓ Verified
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                          Needs Test
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="italic text-gray-400">Not configured</span>
+                  )}
+                </div>
               </div>
 
               {/* Skip-turn redemption */}
@@ -502,12 +513,8 @@ export const Management = () => {
             <MessageSquare className="text-blue-600" size={22} />
             <h2 className="text-xl font-bold text-gray-800">Telnyx Automated Overdue SMS (24h+)</h2>
           </div>
-          <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
-            telnyxSettings.fromNumber
-              ? 'bg-green-100 text-green-800 border border-green-200'
-              : 'bg-gray-100 text-gray-600 border border-gray-200'
-          }`}>
-            {telnyxSettings.fromNumber ? '🟢 Active' : '⚪ Awaiting Phone Number'}
+          <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-green-100 text-green-800 border border-green-200">
+            🟢 Active & Connected
           </span>
         </div>
 
@@ -515,109 +522,221 @@ export const Management = () => {
           Automatically sends an SMS via your purchased Telnyx number to the assigned roommate whenever a chore has been <strong>overdue for more than 24 hours</strong> and not marked completed.
         </p>
 
-        <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl text-xs text-blue-900 mb-5 space-y-1">
-          <p className="font-bold flex items-center gap-1.5">
-            <ShieldCheck size={15} className="text-blue-700" />
-            Automated & Secure SMS Dispatch:
-          </p>
-          <p className="text-[11px] leading-relaxed">
-            Automated 24h overdue alerts are active as long as your Telnyx phone number is configured. The Telnyx API key is held securely in server-side Supabase Edge secrets (never exposed to client browsers).
-          </p>
+        {/* Sender Info Card (Read-only, no inputs) */}
+        <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-200 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+              <Phone size={18} />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-800">Verified Sender Phone Number</p>
+              <p className="text-sm font-mono text-gray-700 font-semibold">+61 485 939 817</p>
+            </div>
+          </div>
+          <span className="text-[11px] bg-green-100 text-green-800 font-bold px-2.5 py-1 rounded-full border border-green-200 flex items-center gap-1">
+            <CheckCircle size={12} /> Connected & Live
+          </span>
         </div>
 
-        {telnyxFeedback && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-300 text-green-800 text-xs font-bold rounded-lg flex items-center gap-2">
-            <span>✅</span>
-            <span>{telnyxFeedback}</span>
-          </div>
-        )}
-
-        <div className="space-y-4 max-w-xl">
-          {/* Telnyx Phone Number */}
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">
-              Telnyx Phone Number (From):
-            </label>
-            <div className="relative">
-              <Phone className="absolute left-3 top-2.5 text-gray-400" size={16} />
-              <input
-                type="text"
-                placeholder="+61... or +1..."
-                value={currentFrom}
-                onChange={e => setTelnyxFrom(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+        {/* Housemates Phone Setup & Testing Section */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                <Users size={16} className="text-blue-600" />
+                Housemate Phone Numbers & SMS Verification
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Enter your mobile number with country extension (e.g., <code>+614...</code> or <code>04...</code>). A test SMS is dispatched to verify delivery, and the number remains saved to your profile unless edited.
+              </p>
             </div>
-            <p className="text-[11px] text-gray-500 mt-1">Your purchased Telnyx number with country code (e.g., +614... or +1...).</p>
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+              {users.filter(u => userPhones[u.id] && verifiedPhones[u.id]).length} / {users.length} verified
+            </span>
           </div>
 
-          {/* Save Settings Button */}
-          <button
-            type="button"
-            onClick={async () => {
-              await updateTelnyxSettings({
-                enabled: true,
-                fromNumber: currentFrom.trim(),
-              });
-              setTelnyxFeedback("Telnyx phone number saved successfully!");
-              setTimeout(() => setTelnyxFeedback(null), 3000);
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer flex items-center gap-2 shadow-sm"
-          >
-            <CheckCircle size={16} /> Save Phone Number
-          </button>
+          <div className="space-y-3">
+            {users.map(u => {
+              const savedPhone = userPhones[u.id];
+              const isVerified = Boolean(verifiedPhones[u.id] && savedPhone);
+              const isEditing = editingPhoneUserId === u.id || (!savedPhone);
+              const currentInput = phoneInputValues[u.id] !== undefined ? phoneInputValues[u.id] : (savedPhone || '');
+              const isVerifying = verifyingUserId === u.id;
+              const feedback = verificationStatus[u.id];
 
-          {/* Test SMS Box */}
-          <div className="mt-6 pt-5 border-t border-gray-200">
-            <h3 className="text-sm font-bold text-gray-800 mb-2 flex items-center gap-1.5">
-              <Send size={15} className="text-blue-500" /> Test Telnyx Delivery
-            </h3>
-            <p className="text-xs text-gray-500 mb-3">
-              Send an immediate test SMS to verify that your Telnyx number and backend integration can dispatch text messages.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="tel"
-                placeholder="Destination phone (+614... or 04...)"
-                value={testNumber}
-                onChange={e => setTestNumber(e.target.value)}
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-              <button
-                type="button"
-                disabled={isSendingTest || !testNumber.trim() || !currentFrom}
-                onClick={async () => {
-                  setIsSendingTest(true);
-                  setTestResult(null);
-                  try {
-                    const res = await sendTestTelnyxSMS(testNumber.trim());
-                    if (res.success) {
-                      setTestResult({ success: true, message: "Test SMS sent successfully via Telnyx! Check your phone." });
-                    } else {
-                      setTestResult({ success: false, message: res.error || "Failed to send test SMS." });
-                    }
-                  } catch (err) {
-                    setTestResult({ success: false, message: String(err) });
-                  } finally {
-                    setIsSendingTest(false);
+              return (
+                <div key={u.id} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/60 hover:bg-gray-50 transition-all">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-[130px]">
+                      <span className="font-bold text-sm text-gray-800">{u.name}</span>
+                      {currentUserId === u.id && (
+                        <span className="text-[10px] bg-indigo-100 text-indigo-700 font-extrabold px-1.5 py-0.5 rounded-full">
+                          You
+                        </span>
+                      )}
+                    </div>
+
+                    {isVerified && !isEditing ? (
+                      <div className="flex-1 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm font-bold text-gray-800">{savedPhone}</span>
+                          <span className="text-[11px] bg-green-100 text-green-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-green-200">
+                            <CheckCircle size={11} /> Saved & Verified
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={isVerifying}
+                            onClick={async () => {
+                              setVerifyingUserId(u.id);
+                              setVerificationStatus(prev => ({ ...prev, [u.id]: {} }));
+                              const res = await sendTestTelnyxSMS(
+                                savedPhone,
+                                `Chore Roulette: Test SMS to ${u.name}! Overdue chore alerts are working smoothly. 🎲 (Automated alert - do not reply)`
+                              );
+                              if (res.success) {
+                                setVerificationStatus(prev => ({ ...prev, [u.id]: { success: true, message: `Test SMS sent to ${savedPhone}! Check phone.` } }));
+                              } else {
+                                setVerificationStatus(prev => ({ ...prev, [u.id]: { success: false, message: res.error || "Failed to deliver SMS." } }));
+                              }
+                              setVerifyingUserId(null);
+                            }}
+                            className="text-xs text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-100 border border-gray-300 font-semibold px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                          >
+                            {isVerifying ? "Sending..." : "📲 Re-test"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPhoneUserId(u.id);
+                              setPhoneInputValues(prev => ({ ...prev, [u.id]: savedPhone }));
+                              setVerificationStatus(prev => ({ ...prev, [u.id]: {} }));
+                            }}
+                            className="text-xs text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 font-semibold px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                          >
+                            ✏️ Edit
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <div className="relative flex-1">
+                          <Phone className="absolute left-3 top-2.5 text-gray-400" size={14} />
+                          <input
+                            type="tel"
+                            placeholder="+614... or 04..."
+                            value={currentInput}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setPhoneInputValues(prev => ({ ...prev, [u.id]: val }));
+                            }}
+                            className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={isVerifying || !currentInput.trim()}
+                            onClick={async () => {
+                              setVerifyingUserId(u.id);
+                              setVerificationStatus(prev => ({ ...prev, [u.id]: {} }));
+                              const res = await verifyAndSaveUserPhone(u.id, currentInput.trim());
+                              if (res.success) {
+                                setVerificationStatus(prev => ({ ...prev, [u.id]: { success: true, message: `Verified & saved! Test SMS sent to ${currentInput.trim()}.` } }));
+                                setEditingPhoneUserId(null);
+                              } else {
+                                setVerificationStatus(prev => ({ ...prev, [u.id]: { success: false, message: res.error || "Failed to deliver test SMS." } }));
+                              }
+                              setVerifyingUserId(null);
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-1 shadow-sm"
+                          >
+                            {isVerifying ? "Testing & Saving..." : "🚀 Test & Save Number"}
+                          </button>
+                          {savedPhone && isEditing && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPhoneUserId(null);
+                                setPhoneInputValues(prev => ({ ...prev, [u.id]: savedPhone }));
+                                setVerificationStatus(prev => ({ ...prev, [u.id]: {} }));
+                              }}
+                              className="text-xs text-gray-500 hover:text-gray-700 bg-white border border-gray-200 px-2.5 py-1.5 rounded-lg"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {feedback?.message && (
+                    <div className={`mt-2.5 p-2.5 rounded-lg text-xs font-medium ${
+                      feedback.success
+                        ? 'bg-green-50 border border-green-200 text-green-800'
+                        : 'bg-red-50 border border-red-200 text-red-800'
+                    }`}>
+                      {feedback.success ? '✅ ' : '❌ '} {feedback.message}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Ad-hoc Custom Number Test */}
+        <div className="mt-8 pt-5 border-t border-gray-200">
+          <h3 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-1.5">
+            <Send size={15} className="text-blue-500" /> Test Delivery to Any Other Number
+          </h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Send a one-off test SMS to any mobile number with country extension to verify carrier delivery.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2 max-w-xl">
+            <input
+              type="tel"
+              placeholder="+614... or 04..."
+              value={testNumber}
+              onChange={e => setTestNumber(e.target.value)}
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <button
+              type="button"
+              disabled={isSendingTest || !testNumber.trim()}
+              onClick={async () => {
+                setIsSendingTest(true);
+                setTestResult(null);
+                try {
+                  const res = await sendTestTelnyxSMS(testNumber.trim());
+                  if (res.success) {
+                    setTestResult({ success: true, message: "Test SMS dispatched successfully via Telnyx! Check your phone." });
+                  } else {
+                    setTestResult({ success: false, message: res.error || "Failed to send test SMS." });
                   }
-                }}
-                className="bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
-              >
-                {isSendingTest ? 'Sending...' : 'Send Test SMS'}
-              </button>
-            </div>
-
-            {testResult && (
-              <div className={`mt-3 p-3 rounded-lg text-xs font-medium ${
-                testResult.success
-                  ? 'bg-green-50 border border-green-200 text-green-800'
-                  : 'bg-red-50 border border-red-200 text-red-800'
-              }`}>
-                {testResult.success ? '✅ ' : '❌ '} {testResult.message}
-              </div>
-            )}
+                } catch (err) {
+                  setTestResult({ success: false, message: String(err) });
+                } finally {
+                  setIsSendingTest(false);
+                }
+              }}
+              className="bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
+            >
+              {isSendingTest ? 'Sending...' : 'Send Test SMS'}
+            </button>
           </div>
+
+          {testResult && (
+            <div className={`mt-3 max-w-xl p-3 rounded-lg text-xs font-medium ${
+              testResult.success
+                ? 'bg-green-50 border border-green-200 text-green-800'
+                : 'bg-red-50 border border-red-200 text-red-800'
+            }`}>
+              {testResult.success ? '✅ ' : '❌ '} {testResult.message}
+            </div>
+          )}
         </div>
       </section>
 
