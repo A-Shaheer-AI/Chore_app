@@ -32,7 +32,6 @@ export const Management = () => {
   const canManageInspection = isInspectionAuthorized(activeUser);
   
   // Telnyx State
-  const [telnyxEnabled, setTelnyxEnabled] = useState<boolean | null>(null);
   const [telnyxFrom, setTelnyxFrom] = useState<string | null>(null);
   const [telnyxApiKey, setTelnyxApiKey] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -41,7 +40,6 @@ export const Management = () => {
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  const currentEnabled = telnyxEnabled !== null ? telnyxEnabled : telnyxSettings.enabled;
   const currentFrom = telnyxFrom !== null ? telnyxFrom : telnyxSettings.fromNumber;
   const currentApiKey = telnyxApiKey !== null ? telnyxApiKey : telnyxSettings.apiKey;
 
@@ -508,17 +506,27 @@ export const Management = () => {
             <h2 className="text-xl font-bold text-gray-800">Telnyx Automated Overdue SMS (24h+)</h2>
           </div>
           <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
-            telnyxSettings.enabled && telnyxSettings.fromNumber && telnyxSettings.apiKey
+            telnyxSettings.fromNumber
               ? 'bg-green-100 text-green-800 border border-green-200'
               : 'bg-gray-100 text-gray-600 border border-gray-200'
           }`}>
-            {telnyxSettings.enabled && telnyxSettings.fromNumber && telnyxSettings.apiKey ? '🟢 Active' : '⚪ Disabled / Incomplete'}
+            {telnyxSettings.fromNumber ? '🟢 Active' : '⚪ Awaiting Phone Number'}
           </span>
         </div>
 
-        <p className="text-xs text-gray-600 mb-5 leading-relaxed">
+        <p className="text-xs text-gray-600 mb-4 leading-relaxed">
           Automatically sends an SMS via your purchased Telnyx number to the assigned roommate whenever a chore has been <strong>overdue for more than 24 hours</strong> and not marked completed.
         </p>
+
+        <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl text-xs text-blue-900 mb-5 space-y-1">
+          <p className="font-bold flex items-center gap-1.5">
+            <ShieldCheck size={15} className="text-blue-700" />
+            Automated & Secure SMS Dispatch:
+          </p>
+          <p className="text-[11px] leading-relaxed">
+            Automated 24h overdue alerts are active as long as your Telnyx phone number is configured. The Telnyx API key is held securely in server-side Supabase Edge secrets (never exposed to client browsers).
+          </p>
+        </div>
 
         {telnyxFeedback && (
           <div className="mb-4 p-3 bg-green-50 border border-green-300 text-green-800 text-xs font-bold rounded-lg flex items-center gap-2">
@@ -528,23 +536,6 @@ export const Management = () => {
         )}
 
         <div className="space-y-4 max-w-xl">
-          {/* Enable Toggle */}
-          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-200">
-            <div>
-              <p className="text-sm font-bold text-gray-800">Enable Automated 24h Overdue SMS</p>
-              <p className="text-xs text-gray-500">Dispatches an SMS alert to roommate's mobile once 24 hours late</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={currentEnabled}
-                onChange={e => setTelnyxEnabled(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-            </label>
-          </div>
-
           {/* Telnyx Phone Number */}
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">
@@ -560,7 +551,7 @@ export const Management = () => {
                 className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
-            <p className="text-[11px] text-gray-500 mt-1">Your purchased Telnyx number with country code (e.g., +61... or +1...).</p>
+            <p className="text-[11px] text-gray-500 mt-1">Your purchased Telnyx number with country code (e.g., +614... or +1...).</p>
           </div>
 
           {/* Telnyx API Key */}
@@ -572,7 +563,7 @@ export const Management = () => {
               <Lock className="absolute left-3 top-2.5 text-gray-400" size={16} />
               <input
                 type={showApiKey ? 'text' : 'password'}
-                placeholder="KEY..."
+                placeholder="KEY... (Optional if set in Supabase Edge Secrets)"
                 value={currentApiKey}
                 onChange={e => setTelnyxApiKey(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg pl-9 pr-10 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
@@ -593,7 +584,7 @@ export const Management = () => {
             type="button"
             onClick={async () => {
               await updateTelnyxSettings({
-                enabled: currentEnabled,
+                enabled: true,
                 fromNumber: currentFrom.trim(),
                 apiKey: currentApiKey.trim(),
               });
@@ -611,7 +602,7 @@ export const Management = () => {
               <Send size={15} className="text-blue-500" /> Test Telnyx Delivery
             </h3>
             <p className="text-xs text-gray-500 mb-3">
-              Send an immediate test SMS to verify that your Telnyx number and API key can dispatch text messages.
+              Send an immediate test SMS to verify that your Telnyx number and backend integration can dispatch text messages.
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
@@ -623,7 +614,7 @@ export const Management = () => {
               />
               <button
                 type="button"
-                disabled={isSendingTest || !testNumber.trim() || !telnyxApiKey || !telnyxFrom}
+                disabled={isSendingTest || !testNumber.trim() || !currentFrom}
                 onClick={async () => {
                   setIsSendingTest(true);
                   setTestResult(null);

@@ -378,7 +378,7 @@ export const useStore = create<AppState>((set, get) => ({
     const details = (telnyxReceipt?.details as Record<string, unknown>) || parsedLocal || {};
 
     const initialTelnyxSettings: TelnyxSettings = {
-      enabled: Boolean(details.enabled),
+      enabled: details.enabled !== undefined ? Boolean(details.enabled) : true,
       fromNumber: (details.fromNumber as string) || (details.telnyx_phone as string) || '',
       apiKey: (details.apiKey as string) || (details.telnyx_api_key as string) || '',
       proxyUrl: (details.proxyUrl as string) || '',
@@ -516,7 +516,7 @@ export const useStore = create<AppState>((set, get) => ({
 
           // Telnyx Automated SMS notification for chores 24h+ overdue
           const telnyx = get().telnyxSettings;
-          if (telnyx.enabled && telnyx.fromNumber && telnyx.apiKey) {
+          if (telnyx.fromNumber) {
             const smsReceiptKey = `sms_24h_sent_${chore.id}_${chore.due_date}`;
             const alreadySentSms = get().receipts.some(
               r => r.type === 'sms' &&
