@@ -88,6 +88,7 @@ export const sendTelnyxSMS = async (options: {
         from: cleanE164Phone(settings.fromNumber),
         to: formattedTo,
         text: message,
+        client_state: "chore_app",
       }),
     });
 

@@ -33,6 +33,7 @@ serve(async (req) => {
         from: telnyxFrom.trim(),
         to,
         text,
+        client_state: "chore_app",
       }),
     });
 

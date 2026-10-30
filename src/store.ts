@@ -534,7 +534,7 @@ export const useStore = create<AppState>((set, get) => ({
                   localStorage.setItem(smsReceiptKey, "true");
                 }
 
-                const smsMessage = `Chore Roulette: Hey ${overdueUserName}! Friendly reminder that "${chore.name}" is now over 24 hours overdue. Please mark it done in the app before it reaches 48h to avoid a -4 pt penalty & treat fine!`;
+                const smsMessage = `Chore Roulette: Hey ${overdueUserName}! Friendly reminder that "${chore.name}" is now over 24 hours overdue. Please mark it done in the app before it reaches 48h to avoid a -4 pt penalty & treat fine! (Automated alert - do not reply)`;
 
                 sendTelnyxSMS({
                   to: userPhone,
@@ -1651,7 +1651,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   sendTestTelnyxSMS: async (to, message) => {
     const settings = get().telnyxSettings;
-    const testMsg = message || `Chore Roulette: Test SMS from your Telnyx number! Automated 24h overdue alerts are configured. 🎲`;
+    const testMsg = message || `Chore Roulette: Test SMS from your Telnyx number! Automated 24h overdue alerts are configured. 🎲 (Automated alert - do not reply)`;
     return sendTelnyxSMS({ to, message: testMsg, settings });
   },
 }));
