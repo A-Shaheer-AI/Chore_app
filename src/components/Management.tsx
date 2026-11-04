@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useStore, getDefaultInspectionOffset, isInspectionAuthorized } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
-import { Trash2, UserPlus, Plus, SkipForward, Calendar, Users, Lock, ShieldCheck, Phone, MessageSquare, CheckCircle } from 'lucide-react';
+import { Trash2, UserPlus, Plus, Calendar, Users, Lock, ShieldCheck, Phone, MessageSquare, CheckCircle } from 'lucide-react';
 
 export const Management = () => {
   const { 
@@ -11,7 +11,6 @@ export const Management = () => {
     addUser, 
     updateUserAway, 
     updateUserRentDueDate, 
-    redeemSkipTurn, 
     addChore, 
     removeChore, 
     updateChoreAssignment, 
@@ -482,20 +481,6 @@ export const Management = () => {
                   )}
                 </div>
               </div>
-
-              {/* Skip-turn redemption */}
-              {currentUserId === user.id && (
-                <div className="mt-2">
-                  <button
-                    onClick={() => redeemSkipTurn(user.id)}
-                    disabled={user.points < 100 || user.skip_next_chore}
-                    className="flex items-center gap-1 text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-1 rounded-full font-bold hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <SkipForward size={13} />
-                    {user.skip_next_chore ? 'Skip already queued' : `Redeem Skip-Turn (100 pts) — you have ${user.points}`}
-                  </button>
-                </div>
-              )}
             </li>
           ))}
         </ul>

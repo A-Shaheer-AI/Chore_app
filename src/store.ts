@@ -98,6 +98,7 @@ interface AppState {
   removeChore: (id: string) => Promise<void>;
   updateChoreAssignment: (choreId: string, userIds: string[] | null) => Promise<void>;
   redeemSkipTurn: (userId: string) => Promise<void>;
+  skipChoreTurn: (choreId: string) => Promise<void>;
   cheerReceipt: (receiptId: string, cheererId: string, receiptUserId: string) => Promise<void>;
   postAnnouncement: (authorId: string, title: string, message: string) => Promise<void>;
   scheduleInspection: (inspectionDateStr: string, customOffsets?: Record<string, 1 | 2 | 0>) => Promise<void>;
@@ -1406,6 +1407,133 @@ export const useStore = create<AppState>((set, get) => ({
       details: { message: user.name + " redeemed a skip-turn token (-100 pts)" },
       created_at: Date.now(),
     });
+  },
+
+  skipChoreTurn: async (choreId: string) => {
+    const state = get();
+    const targetChore = state.chores.find(c => c.id === choreId);
+    if (!targetChore) return;
+
+    const currentUserId = targetChore.current_user_id;
+    if (!state.currentUserId || state.currentUserId !== currentUserId) {
+      console.warn("Only the currently assigned housemate can skip their turn.");
+      return;
+    }
+
+    const currentUser = state.users.find(u => u.id === currentUserId);
+    if (!currentUser) return;
+
+    const hasActiveToken = Boolean(currentUser.skip_next_chore);
+    const hasEnoughPoints = (currentUser.points || 0) >= 100;
+
+    if (!hasActiveToken && !hasEnoughPoints) {
+      alert("You need at least 100 points to skip a chore turn.");
+      return;
+    }
+
+    const now = Date.now();
+    const pointsDeducted = hasActiveToken ? 0 : 100;
+    const newPoints = (currentUser.points || 0) - pointsDeducted;
+
+    // Deduct points (if not pre-redeemed) and ensure skip_next_chore is consumed
+    await supabase.from("users").update({
+      points: newPoints,
+      skip_next_chore: false,
+    }).eq("id", currentUser.id);
+
+    // Compute next user in rotation
+    let nextUser = getNextUser(targetChore, state.users);
+    const updatedRotationOrder = targetChore.rotation_order;
+
+    // If nextUser also has a skip token active, consume it and advance again
+    if (nextUser && nextUser.skip_next_chore) {
+      await supabase.from("users").update({ skip_next_chore: false }).eq("id", nextUser.id);
+      await supabase.from("receipts").insert({
+        user_id: nextUser.id,
+        chore_id: choreId,
+        type: "skip",
+        details: { message: `${nextUser.name} used their queued skip-turn token`, chore_name: targetChore.name },
+        created_at: now + 1,
+      });
+      const rotation = computeRotation(targetChore, state.users);
+      const skipIdx = rotation.findIndex(u => u.id === nextUser!.id);
+      nextUser = rotation[(skipIdx + 1) % rotation.length];
+    }
+
+    if (!nextUser) {
+      console.warn("No next user available for chore rotation.");
+      return;
+    }
+
+    const nextDueDate = calculateNextDueDate(targetChore, new Date());
+
+    // Update chore in Supabase
+    await supabase.from("chores").update({
+      current_user_id: nextUser.id,
+      due_date: nextDueDate,
+      rotation_order: updatedRotationOrder,
+    }).eq("id", targetChore.id);
+
+    // Insert skip receipt
+    const { data: skipReceipt } = await supabase.from("receipts").insert({
+      user_id: currentUser.id,
+      chore_id: targetChore.id,
+      type: "skip",
+      details: {
+        chore_name: targetChore.name,
+        user_name: currentUser.name,
+        next_user_id: nextUser.id,
+        next_user_name: nextUser.name,
+        message: `${currentUser.name} used 100 points to skip their turn for "${targetChore.name}" (passed to ${nextUser.name})`,
+        points_awarded: -pointsDeducted,
+      },
+      created_at: now,
+    }).select().single();
+
+    // Post announcement
+    await supabase.from("announcements").insert({
+      author_id: currentUser.id,
+      title: `⏭️ Turn Skipped: ${currentUser.name}`,
+      message: `${currentUser.name} used 100 points to skip their turn for "${targetChore.name}". The chore has been passed to ${nextUser.name}!`,
+      created_at: now,
+    });
+
+    try {
+      sendNotification("Turn Skipped", `${nextUser.name}, it is now your turn for ${targetChore.name}!`);
+    } catch (e) {
+      console.warn(e);
+    }
+
+    // Clean up local storage overdue/penalty tracking flags for this chore
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(`notified_24h_${targetChore.id}_${targetChore.due_date}`);
+        localStorage.removeItem(`sms_24h_sent_${targetChore.id}_${targetChore.due_date}`);
+        localStorage.removeItem(`penalty_posted_loan_48h_${targetChore.id}_${targetChore.due_date}`);
+        localStorage.removeItem(`treat_posted_${targetChore.id}_${targetChore.due_date}`);
+      } catch (e) {
+        console.warn("Error clearing local storage keys:", e);
+      }
+    }
+
+    // Update store state
+    set(s => ({
+      users: s.users.map(u => {
+        if (u.id === currentUser.id) {
+          return { ...u, points: newPoints, skip_next_chore: false };
+        }
+        if (nextUser && u.id === nextUser.id && nextUser.skip_next_chore) {
+          return { ...u, skip_next_chore: false };
+        }
+        return u;
+      }),
+      chores: s.chores.map(c => c.id === choreId ? {
+        ...c,
+        current_user_id: nextUser!.id,
+        due_date: nextDueDate,
+      } : c),
+      receipts: skipReceipt ? [skipReceipt, ...s.receipts] : s.receipts,
+    }));
   },
 
   cheerReceipt: async (receiptId, cheererId, receiptUserId) => {

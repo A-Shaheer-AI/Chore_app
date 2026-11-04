@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { formatDistanceToNow, isPast, format } from 'date-fns';
 import { useStore, computeRotation, getNextUser, canUserSwapChoreTurn, isMoppingWaitingForVacuum } from '../store';
-import { CheckCircle, Clock, Camera, Users, ChevronRight, X, Lock, ArrowLeftRight, Sparkles } from 'lucide-react';
+import { CheckCircle, Clock, Camera, Users, ChevronRight, X, Lock, ArrowLeftRight, Sparkles, FastForward } from 'lucide-react';
 
 export const Dashboard = () => {
-  const { users, chores, receipts, currentUserId, inspectionDate, markChoreDone, passChoreTurn } = useStore();
+  const { users, chores, receipts, currentUserId, inspectionDate, markChoreDone, passChoreTurn, skipChoreTurn } = useStore();
   const [currentTime, setCurrentTime] = useState(Date.now());
   
   // Per-chore photo uploads
@@ -19,6 +19,10 @@ export const Dashboard = () => {
   const [swapModalChoreId, setSwapModalChoreId] = useState<string | null>(null);
   const [selectedSwapUserId, setSelectedSwapUserId] = useState<string>('');
   const [isSwapping, setIsSwapping] = useState(false);
+
+  // Turn Skip Modal state
+  const [skipModalChoreId, setSkipModalChoreId] = useState<string | null>(null);
+  const [isSkipping, setIsSkipping] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -64,6 +68,19 @@ export const Dashboard = () => {
     }
   };
 
+  const handleConfirmSkip = async () => {
+    if (!skipModalChoreId || isSkipping) return;
+    setIsSkipping(true);
+    try {
+      await skipChoreTurn(skipModalChoreId);
+      setSkipModalChoreId(null);
+    } catch (err) {
+      console.error("Failed to skip chore turn:", err);
+    } finally {
+      setIsSkipping(false);
+    }
+  };
+
   const isChoreLoaned = (choreId: string) => {
     const latestLoan = receipts.find(r => r.chore_id === choreId && r.type === 'loan');
     const latestCompletion = receipts.find(r => r.chore_id === choreId && r.type === 'completion');
@@ -81,6 +98,9 @@ export const Dashboard = () => {
   const eligibleSwapRoommates = choreToSwap
     ? computeRotation(choreToSwap, users).filter(u => u.id !== currentUserId)
     : [];
+
+  const choreToSkip = skipModalChoreId ? chores.find(c => c.id === skipModalChoreId) : null;
+  const nextRoommateAfterSkip = choreToSkip ? getNextUser(choreToSkip, users) : null;
 
   const daysUntilInspection = inspectionDate
     ? Math.ceil((inspectionDate - currentTime) / (1000 * 60 * 60 * 24))
@@ -258,6 +278,17 @@ export const Dashboard = () => {
                           </button>
                         );
                       })()}
+
+                      {Boolean(currentUserObj && ((currentUserObj.points || 0) >= 100 || currentUserObj.skip_next_chore)) && (
+                        <button
+                          type="button"
+                          onClick={() => setSkipModalChoreId(chore.id)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                        >
+                          <FastForward size={14} />
+                          {currentUserObj?.skip_next_chore ? 'Skip Turn (Token)' : 'Skip Turn (-100 pts)'}
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -440,6 +471,17 @@ export const Dashboard = () => {
                         );
                       })()}
 
+                      {Boolean(currentUserObj && ((currentUserObj.points || 0) >= 100 || currentUserObj.skip_next_chore)) && (
+                        <button
+                          type="button"
+                          onClick={() => setSkipModalChoreId(chore.id)}
+                          className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition-colors w-full sm:w-auto"
+                        >
+                          <FastForward size={18} />
+                          {currentUserObj?.skip_next_chore ? 'Skip Turn (Token)' : 'Skip Turn (-100 pts)'}
+                        </button>
+                      )}
+
                       <button
                         onClick={() => handleDone(chore.id)}
                         disabled={submittingId === chore.id || cooldownIds[chore.id]}
@@ -555,6 +597,84 @@ export const Dashboard = () => {
                   {isSwapping ? 'Swapping...' : 'Confirm Swap (-4 pts)'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SKIP TURN MODAL */}
+      {skipModalChoreId && choreToSkip && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                  <FastForward size={18} />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">Skip Chore Turn</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setSkipModalChoreId(null)} 
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-4">
+              <div>
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Chore</span>
+                <p className="text-base font-bold text-gray-800">{choreToSkip.name}</p>
+              </div>
+
+              {nextRoommateAfterSkip && (
+                <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 text-sm">
+                  <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider block mb-0.5">Passing Turn To</span>
+                  <p className="font-bold text-indigo-900 flex items-center gap-2">
+                    <span>👉</span>
+                    <span>{nextRoommateAfterSkip.name} (Next in rotation)</span>
+                  </p>
+                </div>
+              )}
+
+              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-600 space-y-2">
+                <p className="font-bold text-gray-800">⏭️ How Skip Chore Works:</p>
+                <ul className="list-disc list-inside space-y-1 text-gray-600">
+                  <li>Your turn will end immediately with <strong>no overdue penalties or treat fines</strong>.</li>
+                  <li>The chore will pass directly to <strong>{nextRoommateAfterSkip?.name || 'the next roommate'}</strong>.</li>
+                  <li>The deadline will reset according to the chore schedule, giving them full time.</li>
+                </ul>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs">
+                {currentUserObj?.skip_next_chore ? (
+                  <span className="text-indigo-700 font-bold">Using your active skip token (0 extra points deducted)</span>
+                ) : (
+                  <>
+                    <span className="text-amber-800">Cost: <strong>100 points</strong></span>
+                    <span>Points after skip: <strong className="text-indigo-600">{(currentUserObj?.points || 0) - 100}</strong></span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setSkipModalChoreId(null)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSkipping || (!currentUserObj?.skip_next_chore && (currentUserObj?.points || 0) < 100)}
+                onClick={handleConfirmSkip}
+                className="px-5 py-2 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-md transition-all flex items-center gap-1.5"
+              >
+                {isSkipping ? 'Skipping...' : currentUserObj?.skip_next_chore ? 'Confirm Skip (Token)' : 'Confirm Skip (-100 pts)'}
+              </button>
             </div>
           </div>
         </div>
