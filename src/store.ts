@@ -492,219 +492,141 @@ export const useStore = create<AppState>((set, get) => ({
       });
     };
     
+    let isCheckingOverdue = false;
     const checkOverdueChores = async (choreList: Chore[]) => {
-      const now = Date.now();
-      const activeUserId = get().currentUserId;
+      if (isCheckingOverdue) return;
+      isCheckingOverdue = true;
+      try {
+        const now = Date.now();
+        const activeUserId = get().currentUserId;
 
-      for (const chore of choreList) {
-        // Check if this chore is currently in an active swapped/loaned turn
-        const latestLoan = get().receipts.find(r => r.chore_id === chore.id && r.type === 'loan');
-        const latestCompletion = get().receipts.find(r => r.chore_id === chore.id && r.type === 'completion');
-        const isLoan = Boolean(
-          latestLoan &&
-          (!latestCompletion || latestLoan.created_at > latestCompletion.created_at) &&
-          (latestLoan.details as Record<string, unknown>)?.recipient_id === chore.current_user_id
-        );
+        for (const chore of choreList) {
+          // Check if this chore is currently in an active swapped/loaned turn
+          const latestLoan = get().receipts.find(r => r.chore_id === chore.id && r.type === 'loan');
+          const latestCompletion = get().receipts.find(r => r.chore_id === chore.id && r.type === 'completion');
+          const isLoan = Boolean(
+            latestLoan &&
+            (!latestCompletion || latestLoan.created_at > latestCompletion.created_at) &&
+            (latestLoan.details as Record<string, unknown>)?.recipient_id === chore.current_user_id
+          );
 
-        // Mopping starts from the day when vacuuming is marked done.
-        // Do not flag overdue or penalize while waiting for vacuuming.
-        if (isMoppingWaitingForVacuum(chore, choreList, get().receipts)) {
-          continue;
-        }
+          // Mopping starts from the day when vacuuming is marked done.
+          // Do not flag overdue or penalize while waiting for vacuuming.
+          if (isMoppingWaitingForVacuum(chore, choreList, get().receipts)) {
+            continue;
+          }
 
-        // For all chores (including swapped turns where due_date is the 60h deadline),
-        // hoursOverdue is the hours elapsed since the official deadline (chore.due_date).
-        const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
+          // Cycle-aware anchor: only inspect events belonging to the current incomplete cycle
+          const cycleStart = latestCompletion ? latestCompletion.created_at : 0;
 
-        if (hoursOverdue >= 24) {
-          // Browser notification (for currently active user)
-          if (hoursOverdue < 48 && activeUserId && chore.current_user_id === activeUserId) {
-            const key = `notified_24h_${chore.id}_${chore.due_date}`;
-            if (!localStorage.getItem(key)) {
-              sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
-              localStorage.setItem(key, "true");
+          // For all chores (including swapped turns where due_date is the 60h deadline),
+          // hoursOverdue is the hours elapsed since the official deadline (chore.due_date).
+          const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
+
+          if (hoursOverdue >= 24) {
+            // Browser notification (for currently active user)
+            if (hoursOverdue < 48 && activeUserId && chore.current_user_id === activeUserId) {
+              const key = `notified_24h_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
+              if (!localStorage.getItem(key)) {
+                sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
+                localStorage.setItem(key, "true");
+              }
+            }
+
+            // Telnyx Automated SMS notification for chores 24h+ overdue
+            const telnyx = get().telnyxSettings;
+            if (telnyx.fromNumber) {
+              const smsReceiptKey = `sms_24h_sent_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
+              const alreadySentSms = get().receipts.some(
+                r => r.type === 'sms' &&
+                     r.chore_id === chore.id &&
+                     r.created_at > cycleStart
+              ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(smsReceiptKey)));
+
+              if (!alreadySentSms) {
+                const overdueUser = get().users.find(u => u.id === chore.current_user_id);
+                const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
+                const userPhone = get().userPhones[chore.current_user_id] || (overdueUser as Record<string, unknown>)?.phone;
+
+                if (userPhone && typeof userPhone === 'string') {
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem(smsReceiptKey, "true");
+                  }
+
+                  const smsMessage = `Chore Roulette: Hey ${overdueUserName}! Friendly reminder that "${chore.name}" is now over 24 hours overdue. Please mark it done in the app before it reaches 48h to avoid a -4 pt penalty & treat fine! (Automated alert - do not reply)`;
+
+                  sendTelnyxSMS({
+                    to: userPhone,
+                    message: smsMessage,
+                    settings: telnyx,
+                  }).then(async (res) => {
+                    if (res.success) {
+                      const { data: smsReceipt } = await supabase.from("receipts").insert({
+                        user_id: chore.current_user_id,
+                        chore_id: chore.id,
+                        type: "sms",
+                        details: {
+                          chore_name: chore.name,
+                          user_name: overdueUserName,
+                          recipient_phone: userPhone,
+                          due_date: chore.due_date,
+                          message: smsMessage,
+                          telnyx_message_id: res.messageId,
+                          sent_at: now,
+                        },
+                        created_at: now,
+                      }).select().single();
+
+                      if (smsReceipt) {
+                        set(s => ({ receipts: [smsReceipt, ...s.receipts] }));
+                      }
+                    } else {
+                      console.warn("Telnyx SMS dispatch failed:", res.error);
+                    }
+                  }).catch(err => {
+                    console.error("Telnyx dispatch error:", err);
+                  });
+                }
+              }
             }
           }
 
-          // Telnyx Automated SMS notification for chores 24h+ overdue
-          const telnyx = get().telnyxSettings;
-          if (telnyx.fromNumber) {
-            const smsReceiptKey = `sms_24h_sent_${chore.id}_${chore.due_date}`;
-            const alreadySentSms = get().receipts.some(
-              r => r.type === 'sms' &&
+          if (hoursOverdue >= 48) {
+            const penaltyKey = isLoan
+              ? `penalty_posted_loan_48h_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`
+              : `treat_posted_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
+            const alreadyPosted = get().receipts.some(
+              r => r.type === 'penalty' &&
                    r.chore_id === chore.id &&
-                   (r.details as Record<string, unknown>)?.due_date === chore.due_date
-            ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(smsReceiptKey)));
+                   r.created_at > cycleStart &&
+                   (r.details as Record<string, unknown>)?.treat_penalty !== undefined
+            ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(penaltyKey)));
 
-            if (!alreadySentSms) {
+            if (!alreadyPosted) {
               const overdueUser = get().users.find(u => u.id === chore.current_user_id);
               const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
-              const userPhone = get().userPhones[chore.current_user_id] || (overdueUser as Record<string, unknown>)?.phone;
 
-              if (userPhone && typeof userPhone === 'string') {
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem(smsReceiptKey, "true");
-                }
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(penaltyKey, "true");
+              }
 
-                const smsMessage = `Chore Roulette: Hey ${overdueUserName}! Friendly reminder that "${chore.name}" is now over 24 hours overdue. Please mark it done in the app before it reaches 48h to avoid a -4 pt penalty & treat fine! (Automated alert - do not reply)`;
+              if (overdueUser) {
+                const newPoints = (overdueUser.points || 0) - 4;
+                await supabase.from("users").update({ points: newPoints }).eq("id", chore.current_user_id);
+                set(s => ({
+                  users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPoints } : u)
+                }));
+              }
 
-                sendTelnyxSMS({
-                  to: userPhone,
-                  message: smsMessage,
-                  settings: telnyx,
-                }).then(async (res) => {
-                  if (res.success) {
-                    const { data: smsReceipt } = await supabase.from("receipts").insert({
-                      user_id: chore.current_user_id,
-                      chore_id: chore.id,
-                      type: "sms",
-                      details: {
-                        chore_name: chore.name,
-                        user_name: overdueUserName,
-                        recipient_phone: userPhone,
-                        due_date: chore.due_date,
-                        message: smsMessage,
-                        telnyx_message_id: res.messageId,
-                        sent_at: now,
-                      },
-                      created_at: now,
-                    }).select().single();
-
-                    if (smsReceipt) {
-                      set(s => ({ receipts: [smsReceipt, ...s.receipts] }));
-                    }
-                  } else {
-                    console.warn("Telnyx SMS dispatch failed:", res.error);
-                  }
-                }).catch(err => {
-                  console.error("Telnyx dispatch error:", err);
+              if (!isLoan) {
+                await supabase.from("announcements").insert({
+                  author_id: chore.current_user_id,
+                  title: `🍩 Treat Alert: ${overdueUserName} owes everyone a treat!`,
+                  message: `${overdueUserName} is over 48 hours late on "${chore.name}". As per house rules, they now owe everyone in the house a food treat!`,
+                  created_at: now,
                 });
-              }
-            }
-          }
-        }
 
-        if (hoursOverdue >= 48) {
-          const penaltyKey = isLoan
-            ? `penalty_posted_loan_48h_${chore.id}_${chore.due_date}`
-            : `treat_posted_${chore.id}_${chore.due_date}`;
-          const alreadyPosted = get().receipts.some(
-            r => r.type === 'penalty' && r.chore_id === chore.id && (r.details as Record<string, unknown>)?.due_date === chore.due_date
-          ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(penaltyKey)));
-
-          if (!alreadyPosted) {
-            const overdueUser = get().users.find(u => u.id === chore.current_user_id);
-            const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
-
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(penaltyKey, "true");
-            }
-
-            if (overdueUser) {
-              const newPoints = (overdueUser.points || 0) - 4;
-              await supabase.from("users").update({ points: newPoints }).eq("id", chore.current_user_id);
-              set(s => ({
-                users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPoints } : u)
-              }));
-            }
-
-            if (!isLoan) {
-              await supabase.from("announcements").insert({
-                author_id: chore.current_user_id,
-                title: `🍩 Treat Alert: ${overdueUserName} owes everyone a treat!`,
-                message: `${overdueUserName} is over 48 hours late on "${chore.name}". As per house rules, they now owe everyone in the house a food treat!`,
-                created_at: now,
-              });
-
-              const { data: treatReceipt } = await supabase.from("receipts").insert({
-                user_id: chore.current_user_id,
-                chore_id: chore.id,
-                type: "penalty",
-                details: {
-                  chore_name: chore.name,
-                  user_name: overdueUserName,
-                  due_date: chore.due_date,
-                  treat_penalty: true,
-                  points_awarded: -4,
-                  message: `${overdueUserName} is over 48 hours late on "${chore.name}" (-4 pts) and owes everyone a treat!`,
-                },
-                created_at: now,
-              }).select().single();
-
-              if (treatReceipt) {
-                set(s => ({ receipts: [treatReceipt, ...s.receipts] }));
-              }
-            } else {
-              // Swapped chores deduct normal penalty points (-4 pts) after 48h grace period, without treat alert
-              const { data: penaltyReceipt } = await supabase.from("receipts").insert({
-                user_id: chore.current_user_id,
-                chore_id: chore.id,
-                type: "penalty",
-                details: {
-                  chore_name: chore.name,
-                  user_name: overdueUserName,
-                  due_date: chore.due_date,
-                  treat_penalty: false,
-                  is_loan: true,
-                  points_awarded: -4,
-                  message: `${overdueUserName} is over 48 hours past the deadline on swapped chore "${chore.name}" (-4 pts).`,
-                },
-                created_at: now,
-              }).select().single();
-
-              if (penaltyReceipt) {
-                set(s => ({ receipts: [penaltyReceipt, ...s.receipts] }));
-              }
-            }
-          }
-
-          if (activeUserId && chore.current_user_id === activeUserId) {
-            const key = `notified_48h_${chore.id}_${chore.due_date}`;
-            if (!localStorage.getItem(key)) {
-              sendNotification(
-                "Chore Penalty (48h+)",
-                isLoan
-                  ? `Penalty! "${chore.name}" is over 48 hours past the deadline (-4 pts).`
-                  : `Penalty! "${chore.name}" is over 48 hours late (-4 pts). You owe the house a treat!`
-              );
-              localStorage.setItem(key, "true");
-            }
-          }
-
-          // Daily progressive penalty: deduct 2 extra points for each extra day overdue (starting from next cycle)
-          // "for this upcoming one dont apply it, but from next cycle onwards or next eprson who makes chores overdue set it in motion"
-          const isProgressivePenaltyEligible = chore.due_date > 1791177599000;
-          const daysOverdue = Math.floor(hoursOverdue / 24);
-
-          if (isProgressivePenaltyEligible && daysOverdue >= 3) {
-            const overdueUser = get().users.find(u => u.id === chore.current_user_id);
-            const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
-
-            for (let d = 3; d <= daysOverdue; d++) {
-              const dayKey = `overdue_day_${d}_posted_${chore.id}_${chore.due_date}`;
-              const alreadyDeductedDay = get().receipts.some(
-                r => r.type === 'penalty' &&
-                     r.chore_id === chore.id &&
-                     (r.details as Record<string, unknown>)?.due_date === chore.due_date &&
-                     (r.details as Record<string, unknown>)?.overdue_day === d
-              ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(dayKey)));
-
-              if (!alreadyDeductedDay) {
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem(dayKey, "true");
-                }
-
-                const currentUserObj = get().users.find(u => u.id === chore.current_user_id);
-                if (currentUserObj) {
-                  const newPts = (currentUserObj.points || 0) - 2;
-                  await supabase.from("users").update({ points: newPts }).eq("id", chore.current_user_id);
-                  set(s => ({
-                    users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPts } : u)
-                  }));
-                }
-
-                const totalPenaltySoFar = 4 + 2 * (d - 2);
-                const { data: dayReceipt } = await supabase.from("receipts").insert({
+                const { data: treatReceipt } = await supabase.from("receipts").insert({
                   user_id: chore.current_user_id,
                   chore_id: chore.id,
                   type: "penalty",
@@ -712,29 +634,120 @@ export const useStore = create<AppState>((set, get) => ({
                     chore_name: chore.name,
                     user_name: overdueUserName,
                     due_date: chore.due_date,
-                    overdue_day: d,
-                    points_awarded: -2,
-                    is_loan: isLoan,
-                    treat_penalty: false,
-                    message: `${overdueUserName} is ${d} days overdue on "${chore.name}" (-2 extra pts, total -${totalPenaltySoFar} pts)`,
+                    treat_penalty: true,
+                    points_awarded: -4,
+                    message: `${overdueUserName} is over 48 hours late on "${chore.name}" (-4 pts) and owes everyone a treat!`,
                   },
                   created_at: now,
                 }).select().single();
 
-                if (dayReceipt) {
-                  set(s => ({ receipts: [dayReceipt, ...s.receipts] }));
+                if (treatReceipt) {
+                  set(s => ({ receipts: [treatReceipt, ...s.receipts] }));
                 }
+              } else {
+                // Swapped chores deduct normal penalty points (-4 pts) after 48h grace period, without treat alert
+                const { data: penaltyReceipt } = await supabase.from("receipts").insert({
+                  user_id: chore.current_user_id,
+                  chore_id: chore.id,
+                  type: "penalty",
+                  details: {
+                    chore_name: chore.name,
+                    user_name: overdueUserName,
+                    due_date: chore.due_date,
+                    treat_penalty: false,
+                    is_loan: true,
+                    points_awarded: -4,
+                    message: `${overdueUserName} is over 48 hours past the deadline on swapped chore "${chore.name}" (-4 pts).`,
+                  },
+                  created_at: now,
+                }).select().single();
 
-                if (activeUserId && chore.current_user_id === activeUserId) {
-                  sendNotification(
-                    `Extra Overdue Penalty (-2 pts)`,
-                    `"${chore.name}" is ${d} days late. An extra -2 points was deducted (total -${totalPenaltySoFar} pts)!`
-                  );
+                if (penaltyReceipt) {
+                  set(s => ({ receipts: [penaltyReceipt, ...s.receipts] }));
+                }
+              }
+            }
+
+            if (activeUserId && chore.current_user_id === activeUserId) {
+              const key = `notified_48h_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
+              if (!localStorage.getItem(key)) {
+                sendNotification(
+                  "Chore Penalty (48h+)",
+                  isLoan
+                    ? `Penalty! "${chore.name}" is over 48 hours past the deadline (-4 pts).`
+                    : `Penalty! "${chore.name}" is over 48 hours late (-4 pts). You owe the house a treat!`
+                );
+                localStorage.setItem(key, "true");
+              }
+            }
+
+            // Daily progressive penalty: deduct 2 extra points for each extra day overdue (starting from next cycle)
+            // "for this upcoming one dont apply it, but from next cycle onwards or next eprson who makes chores overdue set it in motion"
+            const isProgressivePenaltyEligible = chore.due_date > 1791177599000;
+            const daysOverdue = Math.floor(hoursOverdue / 24);
+
+            if (isProgressivePenaltyEligible && daysOverdue >= 3) {
+              const overdueUser = get().users.find(u => u.id === chore.current_user_id);
+              const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
+
+              for (let d = 3; d <= daysOverdue; d++) {
+                const dayKey = `overdue_day_${d}_posted_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
+                const alreadyDeductedDay = get().receipts.some(
+                  r => r.type === 'penalty' &&
+                       r.chore_id === chore.id &&
+                       r.created_at > cycleStart &&
+                       (r.details as Record<string, unknown>)?.overdue_day === d
+                ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(dayKey)));
+
+                if (!alreadyDeductedDay) {
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem(dayKey, "true");
+                  }
+
+                  const currentUserObj = get().users.find(u => u.id === chore.current_user_id);
+                  if (currentUserObj) {
+                    const newPts = (currentUserObj.points || 0) - 2;
+                    await supabase.from("users").update({ points: newPts }).eq("id", chore.current_user_id);
+                    set(s => ({
+                      users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPts } : u)
+                    }));
+                  }
+
+                  const totalPenaltySoFar = 4 + 2 * (d - 2);
+                  const { data: dayReceipt } = await supabase.from("receipts").insert({
+                    user_id: chore.current_user_id,
+                    chore_id: chore.id,
+                    type: "penalty",
+                    details: {
+                      chore_name: chore.name,
+                      user_name: overdueUserName,
+                      due_date: chore.due_date,
+                      overdue_day: d,
+                      points_awarded: -2,
+                      is_loan: isLoan,
+                      treat_penalty: false,
+                      message: `${overdueUserName} is ${d} days overdue on "${chore.name}" (-2 extra pts, total -${totalPenaltySoFar} pts)`,
+                    },
+                    created_at: now,
+                  }).select().single();
+
+                  if (dayReceipt) {
+                    set(s => ({ receipts: [dayReceipt, ...s.receipts] }));
+                  }
+
+                  if (activeUserId && chore.current_user_id === activeUserId) {
+                    sendNotification(
+                      `Extra Overdue Penalty (-2 pts)`,
+                      `"${chore.name}" is ${d} days late. An extra -2 points was deducted (total -${totalPenaltySoFar} pts)!`
+                    );
+                  }
                 }
               }
             }
           }
         }
+      } finally {
+        isCheckingOverdue = false;
       }
     };
 
