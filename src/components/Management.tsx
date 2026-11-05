@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useStore, getDefaultInspectionOffset, isInspectionAuthorized } from '../store';
+import { useStore, getDefaultInspectionOffset, isInspectionAuthorized, getActiveInspectionDetails } from '../store';
 import type { ScheduleType } from '../store';
 import { format, addDays } from 'date-fns';
 import { Trash2, UserPlus, Plus, Calendar, Users, Lock, ShieldCheck, Phone, MessageSquare, CheckCircle } from 'lucide-react';
@@ -8,6 +8,7 @@ export const Management = () => {
   const { 
     users, 
     chores, 
+    receipts,
     addUser, 
     updateUserAway, 
     updateUserRentDueDate, 
@@ -35,10 +36,13 @@ export const Management = () => {
   const [phoneStatus, setPhoneStatus] = useState<Record<string, { success?: boolean; message?: string }>>({});
 
   // Inspection State
+  const activeInspection = getActiveInspectionDetails(receipts);
   const [inspectionInputDate, setInspectionInputDate] = useState<string>(
-    inspectionDate ? format(inspectionDate, 'yyyy-MM-dd') : ''
+    activeInspection?.inspectionDateStr || (inspectionDate ? format(inspectionDate, 'yyyy-MM-dd') : '')
   );
-  const [customOffsets, setCustomOffsets] = useState<Record<string, 1 | 2 | 0>>({});
+  const [customOffsets, setCustomOffsets] = useState<Record<string, 1 | 2 | 0>>(
+    activeInspection?.customOffsets || {}
+  );
   const [isSchedulingInspection, setIsSchedulingInspection] = useState(false);
   const [inspectionFeedback, setInspectionFeedback] = useState<string | null>(null);
 
@@ -75,7 +79,7 @@ export const Management = () => {
     setIsSchedulingInspection(true);
     try {
       await scheduleInspection(inspectionInputDate, customOffsets);
-      setInspectionFeedback("Inspection schedule applied! All chore due dates have been aligned.");
+      setInspectionFeedback("Inspection schedule saved! Regular chores will cycle normally and automatically align before inspection.");
       setTimeout(() => setInspectionFeedback(null), 5000);
     } catch (err) {
       console.error("Failed to schedule inspection:", err);
@@ -281,22 +285,36 @@ export const Management = () => {
                 const offset = getChoreOffset(chore);
                 const projectedDue = calculateProjectedDate(chore, offset);
                 const assignee = users.find(u => u.id === chore.current_user_id)?.name || 'Unknown';
+                const willShiftImmediately = offset !== 0 && chore.due_date > projectedDue;
 
                 return (
                   <div key={chore.id} className="p-3 sm:p-4 hover:bg-gray-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-sm text-gray-800 break-words">{chore.name}</span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
                           👤 {assignee}
                         </span>
+                        {offset === 0 ? (
+                          <span className="text-[11px] font-semibold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                            Exempt
+                          </span>
+                        ) : willShiftImmediately ? (
+                          <span className="text-[11px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                            ⚡ Aligns immediately
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                            🔄 Cycles normally until {format(projectedDue, 'MMM d')}
+                          </span>
+                        )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-gray-500">
-                        <span>Current: <span className="font-semibold text-gray-700">{format(chore.due_date, 'EEE, MMM d, HH:mm')}</span></span>
-                        <span>➔</span>
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-gray-500">
+                        <span>Current Due: <span className="font-semibold text-gray-700">{format(chore.due_date, 'EEE, MMM d, HH:mm')}</span></span>
+                        <span>•</span>
                         <span>
-                          Target: <span className={`font-bold ${offset === 0 ? 'text-gray-600' : 'text-amber-700'}`}>
-                            {offset === 0 ? 'Keep current' : format(projectedDue, 'EEE, MMM d, HH:mm')}
+                          Pre-Inspection Target: <span className={`font-bold ${offset === 0 ? 'text-gray-600' : 'text-amber-700'}`}>
+                            {offset === 0 ? 'Exempt (no shift)' : format(projectedDue, 'EEE, MMM d, HH:mm')}
                           </span>
                         </span>
                       </div>
@@ -354,7 +372,7 @@ export const Management = () => {
 
             <div className="mt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
               <p className="text-xs text-gray-500">
-                Aligning will update chore due dates in real-time, post an announcement, and log a transparent receipt.
+                💡 <strong>Smart Inspection:</strong> Current chores cycle normally without disruption. Each chore automatically aligns to its Day -1 or Day -2 target on its final turn before inspection.
               </p>
               <button
                 type="button"
@@ -363,7 +381,7 @@ export const Management = () => {
                 title={!canManageInspection ? "Only Minhaz and Ahmed can align chores for inspection" : ""}
                 className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                📅 {isSchedulingInspection ? 'Aligning Chores...' : 'Align All Chores for Inspection'}
+                📅 {isSchedulingInspection ? 'Saving Inspection Schedule...' : 'Save Inspection Schedule & Smart Alignment'}
               </button>
             </div>
           </div>

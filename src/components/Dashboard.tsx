@@ -137,7 +137,7 @@ export const Dashboard = () => {
                 House Inspection: {format(inspectionDate, 'EEEE, MMMM d, yyyy')}
               </h2>
               <p className="text-xs sm:text-sm text-amber-100 mt-1 leading-relaxed">
-                Chores leading up to the inspection have been delayed to 1 or 2 days prior to inspection day. Vacuuming & deep cleaning are set 2 days before; mopping, kitchen surfaces & bins 1 day before so the house is spotless!
+                Upcoming house inspection scheduled! Regular chore rotations continue as normal. When a chore reaches its final turn before inspection, it will automatically align to Day -1 or Day -2 so the house is spotless for inspection day.
               </p>
             </div>
           </div>

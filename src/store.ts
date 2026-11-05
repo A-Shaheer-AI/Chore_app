@@ -214,17 +214,94 @@ export const getDefaultInspectionOffset = (choreName: string): 1 | 2 => {
   return 1;
 };
 
-export const getActiveInspectionDate = (receiptList: Receipt[]): number | null => {
+export interface ActiveInspectionDetails {
+  inspectionTimestamp: number;
+  customOffsets: Record<string, 1 | 2 | 0>;
+  inspectionDateStr: string;
+}
+
+export const getActiveInspectionDetails = (receiptList: Receipt[]): ActiveInspectionDetails | null => {
   const latest = receiptList.find(r => r.type === 'inspection');
   if (!latest) return null;
   const d = latest.details as Record<string, unknown>;
   if (d.action === 'schedule' && typeof d.inspection_timestamp === 'number') {
     // Keep active through the end of the inspection day (+24 hours)
     if (Date.now() <= d.inspection_timestamp + 86400000) {
-      return d.inspection_timestamp;
+      const customOffsets = (d.custom_offsets as Record<string, 1 | 2 | 0>) || {};
+      return {
+        inspectionTimestamp: d.inspection_timestamp,
+        customOffsets,
+        inspectionDateStr: (d.inspection_date as string) || '',
+      };
     }
   }
   return null;
+};
+
+export const getActiveInspectionDate = (receiptList: Receipt[]): number | null => {
+  return getActiveInspectionDetails(receiptList)?.inspectionTimestamp ?? null;
+};
+
+export const getInspectionTargetDueDate = (
+  chore: Partial<Chore>,
+  inspectionTimestamp: number,
+  customOffset?: 1 | 2 | 0
+): number | null => {
+  const offset = customOffset !== undefined ? customOffset : getDefaultInspectionOffset(chore.name || '');
+  if (offset === 0) return null; // Exempt from pre-inspection alignment
+
+  const inspectionDate = new Date(inspectionTimestamp);
+  const targetDate = addDays(inspectionDate, -offset);
+  const [hours, minutes] = (chore.time_of_day || '22:00').split(':').map(Number);
+  targetDate.setHours(hours || 0, minutes || 0, 0, 0);
+  return targetDate.getTime();
+};
+
+export const calculateSmartNextDueDate = (
+  chore: Partial<Chore>,
+  fromDate: Date = new Date(),
+  receipts: Receipt[] = [],
+  options: { isSkip?: boolean } = {}
+): number => {
+  const normalNextDueDate = calculateNextDueDate(chore, fromDate);
+  const inspection = getActiveInspectionDetails(receipts);
+  if (!inspection) return normalNextDueDate;
+
+  const targetDueDate = getInspectionTargetDueDate(
+    chore,
+    inspection.inspectionTimestamp,
+    chore.id ? inspection.customOffsets[chore.id] : undefined
+  );
+  if (!targetDueDate) return normalNextDueDate;
+
+  // If this turn was a skip, the pre-inspection requirement has NOT been fulfilled yet.
+  if (options.isSkip) {
+    // If current chore was already scheduled on or after targetDueDate, keep it at targetDueDate
+    if (chore.due_date && chore.due_date >= targetDueDate - 12 * 60 * 60 * 1000) {
+      return targetDueDate;
+    }
+    // If normal next due date would fall past pre-inspection target, pull back to targetDueDate
+    if (normalNextDueDate > targetDueDate) {
+      return targetDueDate;
+    }
+    return normalNextDueDate;
+  }
+
+  // For completed turns (markChoreDone):
+  // If the turn just completed was already at or beyond the pre-inspection target date,
+  // the pre-inspection requirement is satisfied! Normal schedule rolls forward past inspection.
+  if (chore.due_date && chore.due_date >= targetDueDate - 12 * 60 * 60 * 1000) {
+    return normalNextDueDate;
+  }
+
+  // If the next regular scheduled date would fall AFTER the pre-inspection deadline,
+  // pull this turn back to the pre-inspection deadline so it is completed in time!
+  if (normalNextDueDate > targetDueDate) {
+    return targetDueDate;
+  }
+
+  // Otherwise, continue rolling normal cycle
+  return normalNextDueDate;
 };
 
 export const isInspectionAuthorized = (user: User | null | undefined): boolean => {
@@ -965,7 +1042,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     if (nextUser) {
-      const nextDueDate = calculateNextDueDate(targetChore, new Date());
+      const nextDueDate = calculateSmartNextDueDate(targetChore, new Date(), state.receipts);
       await supabase.from("chores").update({
         current_user_id: nextUser.id,
         due_date: nextDueDate,
@@ -1345,7 +1422,7 @@ export const useStore = create<AppState>((set, get) => ({
     const assignedUser = activeRotation.length > 0 ? activeRotation[0] : rotation_order[0];
     
     if (!assignedUser) return;
-    const initialDueDate = calculateNextDueDate(payload, new Date());
+    const initialDueDate = calculateSmartNextDueDate(payload, new Date(), state.receipts);
     
     await supabase.from("chores").insert({
       ...payload,
@@ -1478,7 +1555,7 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
 
-    const nextDueDate = calculateNextDueDate(targetChore, new Date());
+    const nextDueDate = calculateSmartNextDueDate(targetChore, new Date(), state.receipts, { isSkip: true });
 
     // Update chore in Supabase
     await supabase.from("chores").update({
@@ -1631,30 +1708,40 @@ export const useStore = create<AppState>((set, get) => ({
       targetDate.setHours(hours || 0, minutes || 0, 0, 0);
       const newDueDate = targetDate.getTime();
 
-      shifts.push({
-        chore_id: chore.id,
-        chore_name: chore.name,
-        previous_due_date: chore.due_date,
-        new_due_date: newDueDate,
-        offset_days: offset,
-      });
+      // Smart Inspection Rule:
+      // If the chore's current due date is already scheduled for or before the pre-inspection target date,
+      // DO NOT push it into the future! Allow it to continue cycling normally until its final pre-inspection turn.
+      // Only shift immediately if the current chore's due date falls AFTER the pre-inspection target date.
+      if (chore.due_date > newDueDate) {
+        shifts.push({
+          chore_id: chore.id,
+          chore_name: chore.name,
+          previous_due_date: chore.due_date,
+          new_due_date: newDueDate,
+          offset_days: offset,
+        });
 
-      updatedChores[i] = {
-        ...chore,
-        due_date: newDueDate,
-      };
+        updatedChores[i] = {
+          ...chore,
+          due_date: newDueDate,
+        };
 
-      await supabase.from("chores").update({ due_date: newDueDate }).eq("id", chore.id);
+        await supabase.from("chores").update({ due_date: newDueDate }).eq("id", chore.id);
+      }
     }
 
     const authorName = currentUser?.name || 'Roommate';
     const authorId = state.currentUserId || state.users[0]?.id || '';
     const formattedDate = format(inspectionDateObj, 'EEEE, MMMM d, yyyy');
 
+    const announcementMsg = shifts.length > 0
+      ? `${authorName} scheduled house inspection for ${formattedDate}. ${shifts.length} chore(s) due after the inspection were aligned immediately. Ongoing chores will cycle normally and automatically align on their final turn before inspection!`
+      : `${authorName} scheduled house inspection for ${formattedDate}. Ongoing chores will continue cycling normally and automatically align to 1 or 2 days prior to inspection on their final turn!`;
+
     await supabase.from("announcements").insert({
       author_id: authorId,
       title: `🔍 House Inspection Scheduled: ${format(inspectionDateObj, 'MMM d, yyyy')}`,
-      message: `${authorName} scheduled house inspection for ${formattedDate}. ${shifts.length} chores have been aligned to 1 or 2 days prior to inspection so the house is thoroughly cleaned! Check your dashboard for updated deadlines.`,
+      message: announcementMsg,
       created_at: Date.now(),
     });
 
@@ -1666,6 +1753,7 @@ export const useStore = create<AppState>((set, get) => ({
         action: "schedule",
         inspection_date: inspectionDateStr,
         inspection_timestamp: inspectionTimestamp,
+        custom_offsets: customOffsets || {},
         author_name: authorName,
         shifts: shifts,
       },
