@@ -610,9 +610,9 @@ export const useStore = create<AppState>((set, get) => ({
               }
             }
 
-            // Telnyx Automated SMS notification for chores 24h+ overdue
+            // Telnyx Automated SMS notification for chores 24h+ overdue (under 48h)
             const telnyx = get().telnyxSettings;
-            if (telnyx.fromNumber) {
+            if (telnyx.fromNumber && hoursOverdue < 48) {
               const smsReceiptKey = `sms_24h_sent_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
               const alreadySentSms = get().receipts.some(
                 r => r.type === 'sms' &&
@@ -741,6 +741,65 @@ export const useStore = create<AppState>((set, get) => ({
 
                 if (penaltyReceipt) {
                   set(s => ({ receipts: [penaltyReceipt, ...s.receipts] }));
+                }
+              }
+
+              // Telnyx Automated SMS alert for 48h penalty & treat owed
+              const telnyx = get().telnyxSettings;
+              if (telnyx.fromNumber) {
+                const sms48hKey = `sms_48h_sent_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
+                const alreadySent48hSms = get().receipts.some(
+                  r => r.type === 'sms' &&
+                       r.chore_id === chore.id &&
+                       r.created_at > cycleStart &&
+                       (r.details as Record<string, unknown>)?.is_48h_penalty === true
+                ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(sms48hKey)));
+
+                if (!alreadySent48hSms) {
+                  const overdueUser = get().users.find(u => u.id === chore.current_user_id);
+                  const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
+                  const userPhone = get().userPhones[chore.current_user_id] || (overdueUser as Record<string, unknown>)?.phone;
+
+                  if (userPhone && typeof userPhone === 'string') {
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem(sms48hKey, "true");
+                    }
+
+                    const smsMessage = isLoan
+                      ? `Chore Roulette: Hey ${overdueUserName}! Swapped chore "${chore.name}" is now over 48 hours past the deadline. A -4 pt penalty has been deducted. Please complete it in the app.`
+                      : `Chore Roulette: Hey ${overdueUserName}! "${chore.name}" is now over 48 hours late. A -4 pt penalty has been deducted and as per house rules you owe the house a food treat! Please complete it in the app.`;
+
+                    sendTelnyxSMS({
+                      to: userPhone,
+                      message: smsMessage,
+                      settings: telnyx,
+                    }).then(async (res) => {
+                      if (res.success) {
+                        const { data: smsReceipt } = await supabase.from("receipts").insert({
+                          user_id: chore.current_user_id,
+                          chore_id: chore.id,
+                          type: "sms",
+                          details: {
+                            chore_name: chore.name,
+                            user_name: overdueUserName,
+                            recipient_phone: userPhone,
+                            due_date: chore.due_date,
+                            message: smsMessage,
+                            is_48h_penalty: true,
+                            telnyx_message_id: res.messageId,
+                            sent_at: now,
+                          },
+                          created_at: now,
+                        }).select().single();
+
+                        if (smsReceipt) {
+                          set(s => ({ receipts: [smsReceipt, ...s.receipts] }));
+                        }
+                      }
+                    }).catch(err => {
+                      console.error("Telnyx 48h dispatch error:", err);
+                    });
+                  }
                 }
               }
             }
