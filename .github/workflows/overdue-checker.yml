@@ -1,0 +1,25 @@
+name: Chore Roulette Overdue & SMS Checker
+
+on:
+  schedule:
+    # Runs every 30 minutes, 24/7 in the cloud
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub anytime
+
+jobs:
+  check-overdues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Run Overdue & SMS Check
+        run: node scripts/check-overdue.mjs
