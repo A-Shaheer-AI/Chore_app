@@ -162,14 +162,28 @@ export async function runOverdueCheck() {
 
     const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
 
-    // 1. 24h SMS Reminder
-    if (hoursOverdue >= 24) {
-      if (telnyxSettings.fromNumber) {
-        const alreadySentSms = receipts.some(
+    // 1. 24h SMS Reminder (Strictly within 24h to 48h overdue window)
+    if (hoursOverdue >= 24 && hoursOverdue < 48) {
+      if (telnyxSettings.enabled && telnyxSettings.fromNumber) {
+        let alreadySentSms = receipts.some(
           r => r.type === 'sms' &&
                r.chore_id === chore.id &&
-               r.created_at > cycleStart
+               (r.details?.due_date === chore.due_date || r.created_at > cycleStart)
         );
+
+        if (!alreadySentSms) {
+          const { data: dbExistingSms } = await supabase
+            .from("receipts")
+            .select("id")
+            .eq("chore_id", chore.id)
+            .eq("type", "sms")
+            .contains("details", { due_date: chore.due_date })
+            .limit(1);
+
+          if (dbExistingSms && dbExistingSms.length > 0) {
+            alreadySentSms = true;
+          }
+        }
 
         if (!alreadySentSms) {
           const overdueUser = users.find(u => u.id === chore.current_user_id);
@@ -188,7 +202,7 @@ export async function runOverdueCheck() {
 
             if (res.success) {
               smsCount++;
-              await supabase.from("receipts").insert({
+              const { data: smsReceipt } = await supabase.from("receipts").insert({
                 user_id: chore.current_user_id,
                 chore_id: chore.id,
                 type: "sms",
@@ -202,7 +216,8 @@ export async function runOverdueCheck() {
                   sent_at: now,
                 },
                 created_at: now,
-              });
+              }).select().single();
+              if (smsReceipt) receipts.unshift(smsReceipt);
               console.log(`  ✅ 24h SMS dispatched successfully! (Msg ID: ${res.messageId})`);
             } else {
               console.warn(`  ❌ Telnyx SMS dispatch failed:`, res.error);
@@ -217,8 +232,7 @@ export async function runOverdueCheck() {
       let alreadyPosted = receipts.some(
         r => r.type === 'penalty' &&
              r.chore_id === chore.id &&
-             r.created_at > cycleStart &&
-             r.details?.treat_penalty !== undefined
+             (r.details?.due_date === chore.due_date || (r.created_at > cycleStart && r.details?.treat_penalty !== undefined))
       );
 
       if (!alreadyPosted) {
@@ -254,7 +268,7 @@ export async function runOverdueCheck() {
             created_at: now,
           });
 
-          await supabase.from("receipts").insert({
+          const { data: penaltyReceipt } = await supabase.from("receipts").insert({
             user_id: chore.current_user_id,
             chore_id: chore.id,
             type: "penalty",
@@ -267,10 +281,11 @@ export async function runOverdueCheck() {
               message: `${overdueUserName} is over 48 hours late on "${chore.name}" (-4 pts) and owes everyone a treat!`,
             },
             created_at: now,
-          });
+          }).select().single();
+          if (penaltyReceipt) receipts.unshift(penaltyReceipt);
           penaltyCount++;
         } else {
-          await supabase.from("receipts").insert({
+          const { data: penaltyReceipt } = await supabase.from("receipts").insert({
             user_id: chore.current_user_id,
             chore_id: chore.id,
             type: "penalty",
@@ -284,7 +299,8 @@ export async function runOverdueCheck() {
               message: `${overdueUserName} is over 48 hours past the deadline on swapped chore "${chore.name}" (-4 pts).`,
             },
             created_at: now,
-          });
+          }).select().single();
+          if (penaltyReceipt) receipts.unshift(penaltyReceipt);
           penaltyCount++;
         }
       }
@@ -301,7 +317,7 @@ export async function runOverdueCheck() {
           let alreadyDeductedDay = receipts.some(
             r => r.type === 'penalty' &&
                  r.chore_id === chore.id &&
-                 r.created_at > cycleStart &&
+                 (r.details?.due_date === chore.due_date || r.created_at > cycleStart) &&
                  r.details?.overdue_day === d
           );
 
@@ -327,7 +343,7 @@ export async function runOverdueCheck() {
             await supabase.from("users").update({ points: newPts }).eq("id", chore.current_user_id);
 
             const totalPenaltySoFar = 4 + 2 * (d - 2);
-            await supabase.from("receipts").insert({
+            const { data: dayReceipt } = await supabase.from("receipts").insert({
               user_id: chore.current_user_id,
               chore_id: chore.id,
               type: "penalty",
@@ -342,7 +358,8 @@ export async function runOverdueCheck() {
                 message: `${overdueUserName} is ${d} days overdue on "${chore.name}" (-2 extra pts, total -${totalPenaltySoFar} pts)`,
               },
               created_at: now,
-            });
+            }).select().single();
+            if (dayReceipt) receipts.unshift(dayReceipt);
             penaltyCount++;
           }
         }

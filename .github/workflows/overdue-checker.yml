@@ -1,9 +1,9 @@
 name: Chore Roulette Overdue & SMS Checker
 
 on:
-  # schedule:
-  #   # Disabled automated recurring cron to prevent unprompted SMS notifications
-  #   - cron: '*/30 * * * *'
+  schedule:
+    # Runs every 30 minutes, 24/7 in the cloud with DB-level idempotency
+    - cron: '*/30 * * * *'
   workflow_dispatch: # Allows manual trigger from GitHub anytime
 
 jobs:
@@ -22,4 +22,7 @@ jobs:
         run: npm ci --omit=dev
 
       - name: Run Overdue & SMS Check
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://khsqirrkrquliyzbweej.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_29rwbNgCqY4QzAj7inLeyQ_x-kRMwj5' }}
         run: node scripts/check-overdue.mjs
