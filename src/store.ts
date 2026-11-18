@@ -439,7 +439,7 @@ export const useStore = create<AppState>((set, get) => ({
       supabase.from("users").select("*"),
       supabase.from("chores").select("*"),
       supabase.from("history").select("*").order("completed_at", { ascending: false }).limit(50),
-      supabase.from("receipts").select("*").order("created_at", { ascending: false }).limit(100),
+      supabase.from("receipts").select("*").order("created_at", { ascending: false }).limit(1000),
       supabase.from("announcements").select("*").order("created_at", { ascending: false }),
       supabase.from("cheer_log").select("*"),
     ]);
@@ -519,7 +519,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     supabase.channel("public:receipts")
       .on("postgres_changes", { event: "*", schema: "public", table: "receipts" }, async () => {
-        const { data } = await supabase.from("receipts").select("*").order("created_at", { ascending: false }).limit(100);
+        const { data } = await supabase.from("receipts").select("*").order("created_at", { ascending: false }).limit(1000);
         if (data) set({ receipts: data, inspectionDate: getActiveInspectionDate(data) });
       }).subscribe();
 
@@ -574,10 +574,14 @@ export const useStore = create<AppState>((set, get) => ({
       if (isCheckingOverdue) return;
       isCheckingOverdue = true;
       try {
+        // Fetch fresh chores directly from Supabase so we never evaluate with stale in-memory state
+        const { data: freshChores } = await supabase.from("chores").select("*");
+        const choresToCheck = (freshChores && freshChores.length > 0) ? freshChores : choreList;
+
         const now = Date.now();
         const activeUserId = get().currentUserId;
 
-        for (const chore of choreList) {
+        for (const chore of choresToCheck) {
           // Check if this chore is currently in an active swapped/loaned turn
           const latestLoan = get().receipts.find(r => r.chore_id === chore.id && r.type === 'loan');
           const latestCompletion = get().receipts.find(r => r.chore_id === chore.id && r.type === 'completion');
@@ -589,12 +593,17 @@ export const useStore = create<AppState>((set, get) => ({
 
           // Mopping starts from the day when vacuuming is marked done.
           // Do not flag overdue or penalize while waiting for vacuuming.
-          if (isMoppingWaitingForVacuum(chore, choreList, get().receipts)) {
+          if (isMoppingWaitingForVacuum(chore, choresToCheck, get().receipts)) {
             continue;
           }
 
           // Cycle-aware anchor: only inspect events belonging to the current incomplete cycle
           const cycleStart = latestCompletion ? latestCompletion.created_at : 0;
+
+          // If this chore cycle was already marked complete in receipts, skip
+          if (latestCompletion && latestCompletion.created_at >= chore.due_date - (12 * 3600 * 1000)) {
+            continue;
+          }
 
           // For all chores (including swapped turns where due_date is the 60h deadline),
           // hoursOverdue is the hours elapsed since the official deadline (chore.due_date).
@@ -672,12 +681,28 @@ export const useStore = create<AppState>((set, get) => ({
             const penaltyKey = isLoan
               ? `penalty_posted_loan_48h_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`
               : `treat_posted_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
-            const alreadyPosted = get().receipts.some(
+            let alreadyPosted = get().receipts.some(
               r => r.type === 'penalty' &&
                    r.chore_id === chore.id &&
                    r.created_at > cycleStart &&
                    (r.details as Record<string, unknown>)?.treat_penalty !== undefined
             ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(penaltyKey)));
+
+            // Secondary DB verification: check if penalty receipt already exists in Supabase
+            if (!alreadyPosted) {
+              const { data: dbExistingPenalty } = await supabase
+                .from("receipts")
+                .select("id")
+                .eq("chore_id", chore.id)
+                .eq("type", "penalty")
+                .contains("details", { due_date: chore.due_date })
+                .limit(1);
+
+              if (dbExistingPenalty && dbExistingPenalty.length > 0) {
+                alreadyPosted = true;
+                if (typeof window !== 'undefined') localStorage.setItem(penaltyKey, "true");
+              }
+            }
 
             if (!alreadyPosted) {
               const overdueUser = get().users.find(u => u.id === chore.current_user_id);
@@ -687,13 +712,14 @@ export const useStore = create<AppState>((set, get) => ({
                 localStorage.setItem(penaltyKey, "true");
               }
 
-              if (overdueUser) {
-                const newPoints = (overdueUser.points || 0) - 4;
-                await supabase.from("users").update({ points: newPoints }).eq("id", chore.current_user_id);
-                set(s => ({
-                  users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPoints } : u)
-                }));
-              }
+              // Fetch fresh points from DB to prevent overwriting with stale in-memory state
+              const { data: freshUserData } = await supabase.from("users").select("points").eq("id", chore.current_user_id).single();
+              const currentPoints = freshUserData?.points ?? overdueUser?.points ?? 0;
+              const newPoints = currentPoints - 4;
+              await supabase.from("users").update({ points: newPoints }).eq("id", chore.current_user_id);
+              set(s => ({
+                users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPoints } : u)
+              }));
 
               if (!isLoan) {
                 await supabase.from("announcements").insert({
@@ -769,26 +795,41 @@ export const useStore = create<AppState>((set, get) => ({
 
               for (let d = 3; d <= daysOverdue; d++) {
                 const dayKey = `overdue_day_${d}_posted_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
-                const alreadyDeductedDay = get().receipts.some(
+                let alreadyDeductedDay = get().receipts.some(
                   r => r.type === 'penalty' &&
                        r.chore_id === chore.id &&
                        r.created_at > cycleStart &&
                        (r.details as Record<string, unknown>)?.overdue_day === d
                 ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(dayKey)));
 
+                // Secondary DB verification: check if receipt already exists in Supabase
+                if (!alreadyDeductedDay) {
+                  const { data: dbExistingDay } = await supabase
+                    .from("receipts")
+                    .select("id")
+                    .eq("chore_id", chore.id)
+                    .eq("type", "penalty")
+                    .contains("details", { due_date: chore.due_date, overdue_day: d })
+                    .limit(1);
+
+                  if (dbExistingDay && dbExistingDay.length > 0) {
+                    alreadyDeductedDay = true;
+                    if (typeof window !== 'undefined') localStorage.setItem(dayKey, "true");
+                  }
+                }
+
                 if (!alreadyDeductedDay) {
                   if (typeof window !== 'undefined') {
                     localStorage.setItem(dayKey, "true");
                   }
 
-                  const currentUserObj = get().users.find(u => u.id === chore.current_user_id);
-                  if (currentUserObj) {
-                    const newPts = (currentUserObj.points || 0) - 2;
-                    await supabase.from("users").update({ points: newPts }).eq("id", chore.current_user_id);
-                    set(s => ({
-                      users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPts } : u)
-                    }));
-                  }
+                  const { data: freshUserData } = await supabase.from("users").select("points").eq("id", chore.current_user_id).single();
+                  const currentPts = freshUserData?.points ?? get().users.find(u => u.id === chore.current_user_id)?.points ?? 0;
+                  const newPts = currentPts - 2;
+                  await supabase.from("users").update({ points: newPts }).eq("id", chore.current_user_id);
+                  set(s => ({
+                    users: s.users.map(u => u.id === chore.current_user_id ? { ...u, points: newPts } : u)
+                  }));
 
                   const totalPenaltySoFar = 4 + 2 * (d - 2);
                   const { data: dayReceipt } = await supabase.from("receipts").insert({

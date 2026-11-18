@@ -115,7 +115,7 @@ export async function runOverdueCheck() {
   ] = await Promise.all([
     supabase.from('users').select('*'),
     supabase.from('chores').select('*'),
-    supabase.from('receipts').select('*').order('created_at', { ascending: false }).limit(200),
+    supabase.from('receipts').select('*').order('created_at', { ascending: false }).limit(1000),
   ]);
 
   if (usersErr || choresErr || receiptsErr) {
@@ -154,6 +154,12 @@ export async function runOverdueCheck() {
     }
 
     const cycleStart = latestCompletion ? latestCompletion.created_at : 0;
+
+    // If this chore cycle was already marked complete in receipts, skip
+    if (latestCompletion && latestCompletion.created_at >= chore.due_date - (12 * 3600 * 1000)) {
+      continue;
+    }
+
     const hoursOverdue = (now - chore.due_date) / (1000 * 60 * 60);
 
     // 1. 24h SMS Reminder
@@ -208,7 +214,7 @@ export async function runOverdueCheck() {
 
     // 2. 48h Penalty & Treat Alert
     if (hoursOverdue >= 48) {
-      const alreadyPosted = receipts.some(
+      let alreadyPosted = receipts.some(
         r => r.type === 'penalty' &&
              r.chore_id === chore.id &&
              r.created_at > cycleStart &&
@@ -216,15 +222,29 @@ export async function runOverdueCheck() {
       );
 
       if (!alreadyPosted) {
+        const { data: dbExistingPenalty } = await supabase
+          .from("receipts")
+          .select("id")
+          .eq("chore_id", chore.id)
+          .eq("type", "penalty")
+          .contains("details", { due_date: chore.due_date })
+          .limit(1);
+
+        if (dbExistingPenalty && dbExistingPenalty.length > 0) {
+          alreadyPosted = true;
+        }
+      }
+
+      if (!alreadyPosted) {
         const overdueUser = users.find(u => u.id === chore.current_user_id);
         const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
 
         console.log(`  🚨 48h Penalty triggered for ${overdueUserName} on "${chore.name}" (${hoursOverdue.toFixed(1)}h late)!`);
 
-        if (overdueUser) {
-          const newPoints = (overdueUser.points || 0) - 4;
-          await supabase.from("users").update({ points: newPoints }).eq("id", chore.current_user_id);
-        }
+        const { data: freshUserData } = await supabase.from("users").select("points").eq("id", chore.current_user_id).single();
+        const currentPoints = freshUserData?.points ?? overdueUser?.points ?? 0;
+        const newPoints = currentPoints - 4;
+        await supabase.from("users").update({ points: newPoints }).eq("id", chore.current_user_id);
 
         if (!isLoan) {
           await supabase.from("announcements").insert({
@@ -278,7 +298,7 @@ export async function runOverdueCheck() {
         const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
 
         for (let d = 3; d <= daysOverdue; d++) {
-          const alreadyDeductedDay = receipts.some(
+          let alreadyDeductedDay = receipts.some(
             r => r.type === 'penalty' &&
                  r.chore_id === chore.id &&
                  r.created_at > cycleStart &&
@@ -286,12 +306,25 @@ export async function runOverdueCheck() {
           );
 
           if (!alreadyDeductedDay) {
-            console.log(`  📉 Day ${d} Progressive Penalty triggered for ${overdueUserName} on "${chore.name}" (-2 pts)`);
-            const currentUserObj = users.find(u => u.id === chore.current_user_id);
-            if (currentUserObj) {
-              const newPts = (currentUserObj.points || 0) - 2;
-              await supabase.from("users").update({ points: newPts }).eq("id", chore.current_user_id);
+            const { data: dbExistingDay } = await supabase
+              .from("receipts")
+              .select("id")
+              .eq("chore_id", chore.id)
+              .eq("type", "penalty")
+              .contains("details", { due_date: chore.due_date, overdue_day: d })
+              .limit(1);
+
+            if (dbExistingDay && dbExistingDay.length > 0) {
+              alreadyDeductedDay = true;
             }
+          }
+
+          if (!alreadyDeductedDay) {
+            console.log(`  📉 Day ${d} Progressive Penalty triggered for ${overdueUserName} on "${chore.name}" (-2 pts)`);
+            const { data: freshUserData } = await supabase.from("users").select("points").eq("id", chore.current_user_id).single();
+            const currentPts = freshUserData?.points ?? users.find(u => u.id === chore.current_user_id)?.points ?? 0;
+            const newPts = currentPts - 2;
+            await supabase.from("users").update({ points: newPts }).eq("id", chore.current_user_id);
 
             const totalPenaltySoFar = 4 + 2 * (d - 2);
             await supabase.from("receipts").insert({
