@@ -530,14 +530,9 @@ export const useStore = create<AppState>((set, get) => ({
       }).subscribe();
 
     supabase.channel("public:announcements")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "announcements" }, async (payload) => {
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "announcements" }, async () => {
         const { data } = await supabase.from("announcements").select("*").order("created_at", { ascending: false });
         if (data) set({ announcements: data });
-        const row = payload.new as Announcement;
-        // Only notify if not posted by current user
-        if (row.author_id !== get().currentUserId) {
-          sendNotification("Announcement: " + row.title, row.message);
-        }
       }).subscribe();
 
     const checkRentReminders = (userList: User[]) => {
@@ -616,63 +611,6 @@ export const useStore = create<AppState>((set, get) => ({
               if (!localStorage.getItem(key)) {
                 sendNotification("Chore Overdue (24h)", `"${chore.name}" is over 24 hours late!`);
                 localStorage.setItem(key, "true");
-              }
-            }
-
-            // Telnyx Automated SMS notification for chores 24h+ overdue
-            const telnyx = get().telnyxSettings;
-            if (telnyx.fromNumber) {
-              const smsReceiptKey = `sms_24h_sent_${chore.id}_${chore.current_user_id}_cycle_${cycleStart}`;
-              const alreadySentSms = get().receipts.some(
-                r => r.type === 'sms' &&
-                     r.chore_id === chore.id &&
-                     r.created_at > cycleStart
-              ) || (typeof window !== 'undefined' && Boolean(localStorage.getItem(smsReceiptKey)));
-
-              if (!alreadySentSms) {
-                const overdueUser = get().users.find(u => u.id === chore.current_user_id);
-                const overdueUserName = overdueUser ? overdueUser.name : 'Roommate';
-                const userPhone = get().userPhones[chore.current_user_id] || (overdueUser as Record<string, unknown>)?.phone;
-
-                if (userPhone && typeof userPhone === 'string') {
-                  if (typeof window !== 'undefined') {
-                    localStorage.setItem(smsReceiptKey, "true");
-                  }
-
-                  const smsMessage = `Chore Roulette: Hey ${overdueUserName}! Friendly reminder that "${chore.name}" is now over 24 hours overdue. Please mark it done in the app before it reaches 48h to avoid a -4 pt penalty & treat fine! (Automated alert - do not reply)`;
-
-                  sendTelnyxSMS({
-                    to: userPhone,
-                    message: smsMessage,
-                    settings: telnyx,
-                  }).then(async (res) => {
-                    if (res.success) {
-                      const { data: smsReceipt } = await supabase.from("receipts").insert({
-                        user_id: chore.current_user_id,
-                        chore_id: chore.id,
-                        type: "sms",
-                        details: {
-                          chore_name: chore.name,
-                          user_name: overdueUserName,
-                          recipient_phone: userPhone,
-                          due_date: chore.due_date,
-                          message: smsMessage,
-                          telnyx_message_id: res.messageId,
-                          sent_at: now,
-                        },
-                        created_at: now,
-                      }).select().single();
-
-                      if (smsReceipt) {
-                        set(s => ({ receipts: [smsReceipt, ...s.receipts] }));
-                      }
-                    } else {
-                      console.warn("Telnyx SMS dispatch failed:", res.error);
-                    }
-                  }).catch(err => {
-                    console.error("Telnyx dispatch error:", err);
-                  });
-                }
               }
             }
           }

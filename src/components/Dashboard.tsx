@@ -279,16 +279,36 @@ export const Dashboard = () => {
                         );
                       })()}
 
-                      {Boolean(currentUserObj && ((currentUserObj.points || 0) >= 100 || currentUserObj.skip_next_chore)) && (
-                        <button
-                          type="button"
-                          onClick={() => setSkipModalChoreId(chore.id)}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
-                        >
-                          <FastForward size={14} />
-                          {currentUserObj?.skip_next_chore ? 'Skip Turn (Token)' : 'Skip Turn (-100 pts)'}
-                        </button>
-                      )}
+                      {(() => {
+                        const hasSkipToken = Boolean(currentUserObj?.skip_next_chore);
+                        const canSkip = hasSkipToken || ((currentUserObj?.points || 0) >= 100);
+                        const pointsRemaining = Math.max(0, 100 - (currentUserObj?.points || 0));
+
+                        return (
+                          <button
+                            type="button"
+                            disabled={!canSkip}
+                            title={
+                              canSkip
+                                ? (hasSkipToken ? 'Use active skip token' : 'Skip turn using 100 points')
+                                : `Need 100 points to skip (you have ${currentUserObj?.points || 0} pts, need ${pointsRemaining} more)`
+                            }
+                            onClick={() => setSkipModalChoreId(chore.id)}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                              canSkip
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 cursor-pointer'
+                                : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
+                            }`}
+                          >
+                            <FastForward size={14} />
+                            {hasSkipToken
+                              ? 'Skip Turn (Token)'
+                              : canSkip
+                              ? 'Skip Turn (-100 pts)'
+                              : 'Skip Turn (100 pts)'}
+                          </button>
+                        );
+                      })()}
 
                       <button
                         type="button"
@@ -471,16 +491,36 @@ export const Dashboard = () => {
                         );
                       })()}
 
-                      {Boolean(currentUserObj && ((currentUserObj.points || 0) >= 100 || currentUserObj.skip_next_chore)) && (
-                        <button
-                          type="button"
-                          onClick={() => setSkipModalChoreId(chore.id)}
-                          className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition-colors w-full sm:w-auto"
-                        >
-                          <FastForward size={18} />
-                          {currentUserObj?.skip_next_chore ? 'Skip Turn (Token)' : 'Skip Turn (-100 pts)'}
-                        </button>
-                      )}
+                      {(() => {
+                        const hasSkipToken = Boolean(currentUserObj?.skip_next_chore);
+                        const canSkip = hasSkipToken || ((currentUserObj?.points || 0) >= 100);
+                        const pointsRemaining = Math.max(0, 100 - (currentUserObj?.points || 0));
+
+                        return (
+                          <button
+                            type="button"
+                            disabled={!canSkip}
+                            title={
+                              canSkip
+                                ? (hasSkipToken ? 'Use active skip token' : 'Skip turn using 100 points')
+                                : `Need 100 points to skip (you have ${currentUserObj?.points || 0} pts, need ${pointsRemaining} more)`
+                            }
+                            onClick={() => setSkipModalChoreId(chore.id)}
+                            className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border transition-colors w-full sm:w-auto ${
+                              canSkip
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-300 hover:bg-indigo-100 cursor-pointer'
+                                : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
+                            }`}
+                          >
+                            <FastForward size={18} />
+                            {hasSkipToken
+                              ? 'Skip Turn (Token)'
+                              : canSkip
+                              ? 'Skip Turn (-100 pts)'
+                              : 'Skip Turn (100 pts)'}
+                          </button>
+                        );
+                      })()}
 
                       <button
                         onClick={() => handleDone(chore.id)}

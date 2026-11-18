@@ -1,9 +1,9 @@
 name: Chore Roulette Overdue & SMS Checker
 
 on:
-  schedule:
-    # Runs every 30 minutes, 24/7 in the cloud
-    - cron: '*/30 * * * *'
+  # schedule:
+  #   # Disabled automated recurring cron to prevent unprompted SMS notifications
+  #   - cron: '*/30 * * * *'
   workflow_dispatch: # Allows manual trigger from GitHub anytime
 
 jobs:
